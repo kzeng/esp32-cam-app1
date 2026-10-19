@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#edf3f8">
+  <title>登录 · 小窝看护</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <div class="paw" aria-hidden="true">●<span>● ●</span></div>
+    <p class="eyebrow">小窝看护 / PET WATCH</p>
+    <h1>看看家里的<br>小伙伴。</h1>
+    <p class="muted">输入访问密码，打开家里的实时画面。</p>
+    <form method="post" action="{{ url_for('login') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label for="password">访问密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus maxlength="512">
+      {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+      <button class="primary full-width" type="submit">进入小窝 <span aria-hidden="true">→</span></button>
+    </form>
+    <p class="fine-print">首次使用的访问密码由你在家中电脑上设置。</p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,45 @@
+# Local credentials (keep the examples)
+.env
+.env.*
+!.env.example
+!**/.env.example
+firmware/include/secrets.h
+*.pem
+*.key
+
+# ESP32 / PlatformIO
+.pio/
+firmware/.pio/
+.pioenvs/
+.piolibdeps/
+*.bin
+*.elf
+*.map
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Local runtime data
+captures/
+recordings/
+logs/
+*.log
+*.pid
+
+# Editors / operating systems
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
