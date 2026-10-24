@@ -141,6 +141,25 @@ class Camera:
         except (requests.RequestException, ValueError) as error:
             raise CameraError(self._message(error)) from error
 
+    def flash(self, state=None):
+        if state is not None and not isinstance(state, bool):
+            raise ValueError("补灯状态无效。")
+        try:
+            with requests.Session() as client:
+                client.trust_env = False
+                with client.request("GET" if state is None else "POST", self.url + "/flash",
+                                    params=None if state is None else {"state": "on" if state else "off"},
+                                    headers=self.headers, timeout=(2, 5), allow_redirects=False) as response:
+                    response.raise_for_status()
+                    if response.status_code != 200:
+                        raise CameraError("摄像头未确认补灯状态。")
+                    result = response.json()
+                    if not isinstance(result, dict) or not isinstance(result.get("on"), bool):
+                        raise CameraError("摄像头补灯响应无效。")
+                    return result["on"]
+        except (requests.RequestException, ValueError) as error:
+            raise CameraError(self._message(error)) from error
+
     def status(self):
         with self.condition:
             age = None if self.updated is None else time.monotonic() - self.updated

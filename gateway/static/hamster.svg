@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="可爱的仓鼠">
+  <circle cx="64" cy="64" r="62" fill="#e4f2ed"/>
+  <path d="M18 46C12 30 20 17 32 17c12 0 20 12 19 25M77 42c-1-13 7-25 19-25 12 0 20 13 14 29" fill="#d59a66" stroke="#805b50" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M25 42c-2-9 2-17 9-17 6 0 10 7 10 15m40 0c0-8 4-15 10-15 7 0 11 8 9 17" fill="#f7b6b1"/>
+  <ellipse cx="64" cy="73" rx="49" ry="43" fill="#d99d68" stroke="#805b50" stroke-width="3"/>
+  <path d="M50 39c-4 12-10 19-21 24-4 8-4 21 1 31 7 11 20 20 34 20s27-9 34-20c5-10 5-23 1-31-11-5-17-12-21-24-4 7-9 10-14 10s-10-3-14-10Z" fill="#fff7e8"/>
+  <ellipse cx="30" cy="80" rx="13" ry="15" fill="#f3c9b5"/>
+  <ellipse cx="98" cy="80" rx="13" ry="15" fill="#f3c9b5"/>
+  <circle cx="46" cy="68" r="5" fill="#352f39"/>
+  <circle cx="82" cy="68" r="5" fill="#352f39"/>
+  <circle cx="47.5" cy="66.5" r="1.7" fill="white"/>
+  <circle cx="83.5" cy="66.5" r="1.7" fill="white"/>
+  <path d="M59 82q5-5 10 0l-5 5Z" fill="#dc8e93"/>
+  <path d="M64 87v4m0 0q-5 6-11 1m11-1q5 6 11 1" fill="none" stroke="#805b50" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="m20 79 17 3m-16 7 16-2m71-8-17 3m16 7-16-2" fill="none" stroke="#805b50" stroke-width="2" stroke-linecap="round"/>
+  <path d="M49 106q-6-8-12-3m42 3q6-8 12-3" fill="none" stroke="#805b50" stroke-width="3" stroke-linecap="round"/>
+</svg>

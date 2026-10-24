@@ -17,8 +17,12 @@
 
 static httpd_handle_t server = nullptr;
 static SemaphoreHandle_t cameraLock;
+static SemaphoreHandle_t flashLock;
 static bool configured = false;
 static uint32_t lastReconnect = 0;
+static bool flashOn = false;
+static uint32_t flashStarted = 0;
+static constexpr uint32_t FLASH_MAX_MS = 60000;  // Avoid leaving the LED hot indefinitely.
 
 static esp_err_t unavailable(httpd_req_t *req, const char *message) {
   // IDF 4.4 has no HTTPD_503_SERVICE_UNAVAILABLE enum value.
@@ -67,14 +71,48 @@ static esp_err_t capture(httpd_req_t *req) {
 
 static esp_err_t status(httpd_req_t *req) {
   if (!authorize(req)) return ESP_OK;
+  if (xSemaphoreTake(flashLock, pdMS_TO_TICKS(100)) != pdTRUE)
+    return unavailable(req, "Flash busy");
+  const bool light = flashOn;
+  xSemaphoreGive(flashLock);
   char body[256];
   snprintf(body, sizeof(body),
            "{\"board\":\"ai-thinker-esp32cam\",\"uptime_s\":%llu,"
-           "\"rssi_dbm\":%d,\"free_heap\":%u,\"psram\":%s}",
+           "\"rssi_dbm\":%d,\"free_heap\":%u,\"psram\":%s,\"flash_on\":%s}",
            static_cast<unsigned long long>(esp_timer_get_time() / 1000000),
-           WiFi.RSSI(), ESP.getFreeHeap(), psramFound() ? "true" : "false");
+           WiFi.RSSI(), ESP.getFreeHeap(), psramFound() ? "true" : "false",
+           light ? "true" : "false");
   httpd_resp_set_type(req, "application/json");
   return httpd_resp_sendstr(req, body);
+}
+
+static esp_err_t flashStatus(httpd_req_t *req) {
+  if (!authorize(req)) return ESP_OK;
+  if (xSemaphoreTake(flashLock, pdMS_TO_TICKS(100)) != pdTRUE)
+    return unavailable(req, "Flash busy");
+  const bool light = flashOn;
+  xSemaphoreGive(flashLock);
+  httpd_resp_set_type(req, "application/json");
+  return httpd_resp_sendstr(req, light ? "{\"on\":true}" : "{\"on\":false}");
+}
+
+static esp_err_t setFlash(httpd_req_t *req) {
+  if (!authorize(req)) return ESP_OK;
+  char query[32], state[8];
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+      httpd_query_key_value(query, "state", state, sizeof(state)) != ESP_OK)
+    return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing flash state");
+  if (strcmp(state, "on") != 0 && strcmp(state, "off") != 0)
+    return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid flash state");
+  if (xSemaphoreTake(flashLock, pdMS_TO_TICKS(100)) != pdTRUE)
+    return unavailable(req, "Flash busy");
+  const bool light = strcmp(state, "on") == 0;
+  flashOn = light;
+  flashStarted = millis();
+  digitalWrite(4, light ? HIGH : LOW);
+  xSemaphoreGive(flashLock);
+  httpd_resp_set_type(req, "application/json");
+  return httpd_resp_sendstr(req, light ? "{\"on\":true}" : "{\"on\":false}");
 }
 
 static esp_err_t control(httpd_req_t *req) {
@@ -124,9 +162,19 @@ static bool startServer() {
   controlRoute.uri = "/control";
   controlRoute.method = HTTP_POST;
   controlRoute.handler = control;
+  httpd_uri_t flashRoute = {};
+  flashRoute.uri = "/flash";
+  flashRoute.method = HTTP_GET;
+  flashRoute.handler = flashStatus;
+  httpd_uri_t setFlashRoute = {};
+  setFlashRoute.uri = "/flash";
+  setFlashRoute.method = HTTP_POST;
+  setFlashRoute.handler = setFlash;
   return httpd_register_uri_handler(server, &captureRoute) == ESP_OK &&
          httpd_register_uri_handler(server, &statusRoute) == ESP_OK &&
-         httpd_register_uri_handler(server, &controlRoute) == ESP_OK;
+         httpd_register_uri_handler(server, &controlRoute) == ESP_OK &&
+         httpd_register_uri_handler(server, &flashRoute) == ESP_OK &&
+         httpd_register_uri_handler(server, &setFlashRoute) == ESP_OK;
 }
 
 void setup() {
@@ -164,7 +212,8 @@ void setup() {
   esp_camera_sensor_get()->set_framesize(esp_camera_sensor_get(), FRAMESIZE_VGA);
   WiFi.mode(WIFI_STA);  // Initialize network stack before starting esp_http_server.
   cameraLock = xSemaphoreCreateMutex();
-  if (!cameraLock || !startServer()) {
+  flashLock = xSemaphoreCreateMutex();
+  if (!cameraLock || !flashLock || !startServer()) {
     Serial.println("HTTP server initialization failed.");
     return;
   }
@@ -178,6 +227,13 @@ void setup() {
 void loop() {
   static bool wasConnected = false;
   if (!configured) { delay(1000); return; }
+  if (xSemaphoreTake(flashLock, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (flashOn && millis() - flashStarted >= FLASH_MAX_MS) {
+      flashOn = false;
+      digitalWrite(4, LOW);
+    }
+    xSemaphoreGive(flashLock);
+  }
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !wasConnected) {
     Serial.print("Camera ready: http://");

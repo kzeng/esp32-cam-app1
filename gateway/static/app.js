@@ -4,6 +4,7 @@ const csrf = document.querySelector('meta[name="csrf-token"]').content;
 let watching = false, resumeWhenVisible = false, streamStarted = 0;
 let previousSequence = -1, stalledPolls = 0, photoUrl = null, toastTimer;
 let effectiveResolution = "";
+let flashOn = false, flashChanging = false;
 
 $("today").textContent = new Intl.DateTimeFormat("zh-CN", {month: "long", day: "numeric", weekday: "short"}).format(new Date());
 
@@ -67,8 +68,41 @@ function stop() {
   $("state").textContent = "已暂停";
   $("statusDot").className = "dot";
   overlay("画面已暂停", "点击开始观看，重新连接家里的小伙伴。");
-  $("connectionNote").textContent = "此页面已暂停接收画面。";
 }
+
+function updateFlash(on) {
+  flashOn = on;
+  $("flash").disabled = false;
+  $("flash").setAttribute("aria-pressed", String(on));
+  $("flash").textContent = on ? "关闭补灯" : "开启补灯";
+}
+
+async function syncFlash() {
+  if (flashChanging) return;
+  try {
+    const data = await (await api("/api/flash")).json();
+    if (!flashChanging) updateFlash(data.on);
+  } catch (_) {
+    if (!flashChanging) {
+      $("flash").disabled = true;
+      $("flash").textContent = "补灯状态未知";
+    }
+  }
+}
+
+$("flash").addEventListener("click", async () => {
+  flashChanging = true;
+  $("flash").disabled = true;
+  try {
+    const data = await (await api("/api/flash", {
+      method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": csrf},
+      body: JSON.stringify({on: !flashOn}),
+    })).json();
+    updateFlash(data.on);
+    toast(data.on ? "补灯已开启，将在 1 分钟后自动关闭。" : "补灯已关闭。");
+  } catch (error) { toast(error.message); }
+  finally { flashChanging = false; syncFlash(); }
+});
 
 $("toggle").addEventListener("click", () => {
   resumeWhenVisible = false;
@@ -77,6 +111,7 @@ $("toggle").addEventListener("click", () => {
 
 async function poll() {
   if (document.hidden) return;
+  await syncFlash();
   try {
     const data = await (await api("/api/status")).json();
     if (data.resolution && !$("quality").disabled) {
@@ -91,10 +126,8 @@ async function poll() {
     $("statusDot").className = `dot ${live ? "live" : data.state === "offline" ? "offline" : ""}`;
     if (live) {
       $("placeholder").hidden = true;
-      $("connectionNote").textContent = `最近收到画面：${data.frame_age_s} 秒前`;
     } else {
       overlay("正在连接小窝", data.error || "等待摄像头画面，恢复后会自动继续。");
-      $("connectionNote").textContent = data.error || "正在等待画面。";
     }
     if ((data.state === "idle" || !live || stalledPolls >= 3) && Date.now() - streamStarted > 12000) {
       connectStream();
@@ -104,7 +137,6 @@ async function poll() {
     $("state").textContent = "电脑连接中断";
     $("statusDot").className = "dot offline";
     overlay("暂时连接不上", "请确认手机的远程连接已开启，家中电脑仍在运行。");
-    $("connectionNote").textContent = error.message;
   }
 }
 

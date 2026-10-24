@@ -2,7 +2,7 @@
 
 ESP32-CAM 独立供电，通过家中 Wi-Fi 把宠物画面传给 Ubuntu 22.04 笔记本；手机在外面通过 Tailscale 查看。
 
-**当前为第一版源码交付，尚未构建、运行、烧录或实机验证。按用户要求，本机只编辑代码和文档；构建与部署在另一台 Ubuntu / PlatformIO 环境进行。**
+**当前已在本机 Ubuntu 构建、烧录，并验证拍照与补灯开关接口；补灯自动关闭、远程访问和长期运行仍需进一步验收。**
 
 ## 文档入口
 
@@ -13,12 +13,14 @@ ESP32-CAM 独立供电，通过家中 Wi-Fi 把宠物画面传给 Ubuntu 22.04 �
 | [ESP32-CAM 构建与烧录](docs/FIRMWARE.md) | AI Thinker 假设、接线、Wi-Fi、PlatformIO、故障排查 |
 | [Ubuntu 部署步骤](docs/UBUNTU.md) | Python 环境、本地启动、systemd、日志和更新 |
 | [Tailscale 注册与使用](docs/TAILSCALE.md) | 官方入口、安装、账号关系、费用、隐私、手机外网查看 |
+| [frp 手机外网查看](docs/FRP.md) | 本机一键启动、手机地址、限制与安全说明 |
 | [开发说明与记录](docs/DEVELOPMENT.md) | 需求决定、文件说明、实施步骤与交付边界 |
 | [待执行验收清单](docs/ACCEPTANCE.md) | 在 Ubuntu 和真实硬件上逐项确认 |
 
 ## 第一版内容
 
 - 手机网页实时查看、暂停、拍照后下载 JPEG、全屏（浏览器支持时）。
+- 网页手动开启／关闭板载补灯（GPIO4），最长点亮 1 分钟后自动关闭。
 - 三档分辨率：320×240、640×480、800×600；默认 640×480。
 - Ubuntu 按需采集，多人观看共享同一采集循环，最多 6 路浏览器连接。
 - 画面连接状态、超时提示、自动重连；页面进入后台时暂停采集请求。
@@ -46,6 +48,10 @@ ESP32-CAM 日常运行无需 USB 连接电脑；烧录和串口调试才需要�
 3. 按 [Ubuntu 部署步骤](docs/UBUNTU.md) 配置 `gateway/.env`，先在笔记本本机验证。
 4. 按 [Tailscale 指南](docs/TAILSCALE.md) 配置手机远程连接。
 5. 执行 [验收清单](docs/ACCEPTANCE.md)。性能数值以真实供电、照明和外网测试为准。
+
+外网入口走 frp（云服务器 kzeng 上的 frps + nginx HTTPS），可从仓库根目录运行
+`./scripts/start-frp.sh`，自动启动尚未运行的网关并确保隧道在线，打印手机 HTTPS 地址；
+`--status` 仅查询状态。隧道由 systemd 用户服务 `frpc` 常驻，脚本会优先复用。
 
 ## 源码结构
 

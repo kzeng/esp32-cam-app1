@@ -16,7 +16,7 @@
                          手机浏览器
 ```
 
-摄像头无需 USB 连到 Ubuntu。USB 转串口只用于烧录／日志；独立运行保留电源、摄像头和 Wi-Fi 即可。Ubuntu 仍需常开，因为第一版由它承接外网查看。独立光源由用户已有设备提供，固件不控制它；板载 GPIO4 闪光灯保持关闭。
+摄像头无需 USB 连到 Ubuntu。USB 转串口只用于烧录／日志；独立运行保留电源、摄像头和 Wi-Fi 即可。Ubuntu 仍需常开，因为第一版由它承接外网查看。独立光源由用户已有设备提供；可在网页手动控制板载 GPIO4 补灯，开机默认关闭，连续点亮最多 1 分钟后自动关闭。不使用 SD 卡（GPIO4 与其引脚复用），补灯状态对所有观看者共用。
 
 ## 视频链路
 
@@ -60,6 +60,8 @@
 | `GET /capture` | `image/jpeg`；抓取失败为 503 |
 | `GET /status` | 板型标识、运行秒数、RSSI、空闲堆内存、PSRAM 标志 |
 | `POST /control?resolution=low` | `low` / `standard` / `high`，成功返回 `{"ok":true}` |
+| `GET /flash` | 当前补灯状态 `{"on":false}` |
+| `POST /flash?state=on` | `on` / `off`，返回实际状态；点亮 1 分钟后自动关闭 |
 
 默认 VGA（640×480）；low 为 QVGA（320×240），high 为 SVGA（800×600）。摄像头初始化失败会输出串口错误，不提供虚假画面，需修复问题后重启。
 
@@ -74,6 +76,8 @@
 | `GET /api/stream` | 登录后读取 MJPEG，最多 6 路连接 |
 | `GET /api/snapshot` | 登录后请求一张新图片，作为 JPEG 附件返回 |
 | `POST /api/quality` | JSON `{"resolution":"standard"}`，要求会话及 `X-CSRF-Token` |
+| `GET /api/flash` | 登录后读取摄像头实际补灯状态 |
+| `POST /api/flash` | JSON `{"on":true}`，要求会话及 `X-CSRF-Token`；控制补灯 |
 | `GET /healthz` | 仅代表网关 HTTP 服务存活，不代表摄像头在线 |
 
 `/api/status` 状态：idle 表示无采集需求，connecting 表示等待首帧，live 表示网关最近收到新鲜帧，offline 表示采集异常。它不是对手机端播放帧率或全链路延迟的测量。

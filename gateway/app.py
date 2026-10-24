@@ -134,7 +134,7 @@ def logout():
 @app.get("/")
 @login_required
 def index():
-    return render_template("index.html", camera_name=os.environ.get("CAMERA_NAME", "宠物的小窝"))
+    return render_template("index.html", camera_name=os.environ.get("CAMERA_NAME", "仓鼠的小窝"))
 
 
 @app.get("/healthz")
@@ -200,6 +200,21 @@ def quality():
     except CameraError as error:
         return jsonify(error=str(error)), 503
     return jsonify(ok=True, resolution=payload["resolution"])
+
+
+@app.route("/api/flash", methods=["GET", "POST"])
+@login_required
+def flash():
+    state = None
+    if request.method == "POST":
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or type(payload.get("on")) is not bool:
+            return jsonify(error="请选择有效的补灯状态。"), 400
+        state = payload["on"]
+    try:
+        return jsonify(on=camera.flash(state))
+    except CameraError as error:
+        return jsonify(error=str(error)), 503
 
 
 if __name__ == "__main__":

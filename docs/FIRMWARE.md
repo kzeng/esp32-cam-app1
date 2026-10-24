@@ -20,7 +20,7 @@ AI Thinker 固件引脚：
 | VSYNC / HREF | 25 / 23 |
 | SCCB SDA / SCL | 26 / 27 |
 | PWDN / RESET | 32 / -1 |
-| 板载闪光灯 | 4，固定关闭 |
+| 板载补灯 | 4，开机关闭，可由网页控制，1 分钟后自动关闭 |
 
 来源：[乐鑫 camera_pins.h 的 AI_THINKER 分支](https://github.com/espressif/arduino-esp32/blob/2.0.17/libraries/ESP32/examples/Camera/CameraWebServer/camera_pins.h)。板型不匹配时先修改引脚和 PlatformIO board 配置，不要盲目烧录。
 

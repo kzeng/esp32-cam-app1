@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#edf3f8">
-  <title>登录 · 小窝看护</title>
+  <title>登录 · 仓鼠的小窝</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body class="login-page">
   <main class="login-card">
-    <div class="paw" aria-hidden="true">●<span>● ●</span></div>
+    <img class="login-logo" src="{{ url_for('static', filename='hamster.svg') }}" alt="仓鼠卡通图标">
     <p class="eyebrow">小窝看护 / PET WATCH</p>
     <h1>看看家里的<br>小伙伴。</h1>
     <p class="muted">输入访问密码，打开家里的实时画面。</p>
