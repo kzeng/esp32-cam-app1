@@ -10,9 +10,13 @@
                家中路由器
                     │ Wi-Fi 或有线
               Ubuntu 22.04 笔记本
-                    ├─ Python 网关 127.0.0.1:8080
-                    └─ Tailscale Serve HTTPS
-                              │ Tailscale / WireGuard
+                    ├─ Python 网关 0.0.0.0:8080
+                    └─ frpc 客户端
+                              │ frp 隧道
+                    kzeng 云服务器 frps:8080
+                              │ 服务器本机反向代理
+                    nginx HTTPS:443
+                              │ 公网 HTTPS
                          手机浏览器
 ```
 
@@ -32,9 +36,11 @@
 
 ## 网络与隐私
 
-- Tailscale 加密边界是**手机到 Ubuntu**。Ubuntu 解密并处理画面，ESP32 到 Ubuntu 使用局域网 HTTP，依赖家庭 Wi-Fi 安全；该段不是 Tailscale 端到端加密。
-- 网关默认仅监听 `127.0.0.1:8080`，通过 Serve 开放给被允许的 tailnet 设备。
-- 不需要端口转发、公网 IP 或 Tailscale 子网路由。不配置公开入口 Funnel。
+- 手机通过固定地址 `https://hamster.mitoto.cn` 访问；公网 HTTPS 在 kzeng 云服务器的 nginx 终止，再转发到 frps 映射端口。
+- Ubuntu 网关由启动脚本监听 `0.0.0.0:8080`，frpc 将本机 `127.0.0.1:8080` 映射到云服务器。frp 使用 token 验证客户端，具体传输保护取决于 frp 配置。
+- ESP32 到 Ubuntu 使用家庭局域网 HTTP，依赖家庭 Wi-Fi 安全；它不属于公网 HTTPS 的加密范围。
+- 家庭路由器不需要端口转发，手机也不需要安装专用客户端；公网入口由云服务器、域名和证书共同提供。
+- 云服务器上的映射端口 `8080` 当前仍可被公网明文访问。正式入口应使用 HTTPS 域名；若要收紧暴露面，可将 frps 的 `proxyBindAddr` 改为 `127.0.0.1`。
 - 摄像头接口有密钥校验，但无 HTTPS；不要给摄像头设置公网端口映射。摄像头密钥随 HTTP 请求在局域网传输。
 - 所有网页资源随仓库提供，不依赖外部字体、CDN 或第三方统计脚本。
 - 服务端仅把最新帧保留在内存，不保存连续录像或照片文件；拍照由浏览器下载。内存中的最后一张图可能保留到下次更新、错误或进程退出，传输时要求帧仍在新鲜期内。
@@ -42,14 +48,15 @@
 
 ## 配置归属
 
-| 配置 | ESP32-CAM | Ubuntu | 手机 |
+| 配置 | ESP32-CAM | Ubuntu / 云服务器 | 手机 |
 | --- | --- | --- | --- |
 | 家庭 Wi-Fi 名称／密码 | `secrets.h` | 操作系统网络配置 | 在外不需要 |
 | `CAMERA_KEY` | `secrets.h` | `.env`，同一值 | 不提供给网页 |
 | 摄像头 IP | 自动获取并打印 | `CAMERA_URL` | 不需要知道 |
 | 网页访问密码 | 不需要 | `APP_PASSWORD` | 登录页面输入 |
 | 会话签名密钥 | 不需要 | `SECRET_KEY` | 不手动配置 |
-| Tailscale 账号 | **不需要** | 客户端登录 | 客户端登录 |
+| frp 客户端配置／token | **不需要** | `~/.config/frp/frpc.toml` | 不需要 |
+| 公网域名与 HTTPS 证书 | **不需要** | 云服务器 nginx / Let's Encrypt | 只访问固定 HTTPS 地址 |
 
 ## 固件接口（端口 80）
 
@@ -65,7 +72,7 @@
 
 默认 VGA（640×480）；low 为 QVGA（320×240），high 为 SVGA（800×600）。摄像头初始化失败会输出串口错误，不提供虚假画面，需修复问题后重启。
 
-## 网关接口（127.0.0.1:8080）
+## 网关接口（本机端口 8080）
 
 | 方法与路径 | 行为 |
 | --- | --- |
@@ -90,4 +97,5 @@
 - [乐鑫 Arduino CameraWebServer 示例](https://github.com/espressif/arduino-esp32/tree/2.0.17/libraries/ESP32/examples/Camera/CameraWebServer)
 - [PlatformIO AI Thinker ESP32-CAM](https://docs.platformio.org/en/latest/boards/espressif32/esp32cam.html)
 - [Flask 流式响应](https://flask.palletsprojects.com/en/stable/patterns/streaming/)
-- [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve)
+- [frp](https://github.com/fatedier/frp)
+- [nginx 反向代理](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)
