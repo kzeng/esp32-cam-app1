@@ -31,11 +31,17 @@ chmod 600 gateway/.env
 | --- | --- |
 | `CAMERA_URL` | 摄像头实际地址，如 `http://192.168.1.100`，不加 `/capture` |
 | `CAMERA_KEY` | 与 `secrets.h` 完全一致，32–128 位字母／数字，推荐 64 位随机十六进制 |
-| `APP_PASSWORD` | 你自定的网页访问密码，至少 12 字符；不是 Tailscale 密码 |
+| `APP_PASSWORD` | 你自定的网页访问密码，至少 12 字符 |
 | `SECRET_KEY` | 独立生成的随机会话密钥，至少 32 字符 |
 | `CAMERA_NAME` | 网页标题，如 `客厅的小窝` |
 | `TARGET_FPS` | 默认 `6`；1–10 的采集目标上限，不保证实际达到 |
-| `COOKIE_SECURE` | 本机 HTTP 验证用 `0`；部署 Tailscale Serve HTTPS 后用 `1` |
+| `COOKIE_SECURE` | 本机 HTTP 验证用 `0`；通过正式 HTTPS 域名使用时设 `1` |
+| `MOTION_ENABLED` | `1` 开启后台移动检测；临时排查时可设 `0` |
+| `MOTION_FPS` | 无观看者时检测帧率，默认 `2`，不得高于 `TARGET_FPS` |
+| `MOTION_QUIET_SECONDS` | 多少秒无活动后结束当前事件，默认 `15` |
+| `EVENT_RETENTION_DAYS` | 图片保存天数，默认 `30` |
+| `EVENT_QUOTA_MB` | 事件图片总上限，默认 `2048` MB |
+| `DATA_DIR` | SQLite 与事件图片目录，默认相对 `gateway` 的 `data` |
 
 `.env` 中若有空格、`#` 等字符，请用引号包住值，例如 `APP_PASSWORD='your private password'`。密钥不要使用 `CHANGE_` 示例值。Wi-Fi 密码在板端配置，网关不需要它。
 
@@ -46,7 +52,7 @@ cd gateway
 ../.venv/bin/python app.py
 ```
 
-在这台 Ubuntu 的浏览器打开 `http://127.0.0.1:8080`。输入 `APP_PASSWORD`，点击开始观看。服务只绑定本机，所以此时手机不能直接打开笔记本的局域网 IP。
+在这台 Ubuntu 的浏览器打开 `http://127.0.0.1:8080`。输入 `APP_PASSWORD`，确认实时画面、事件页和检测设置页。开发服务器只绑定本机。
 
 确认画面、三档分辨率和拍照；终端 `Ctrl+C` 结束。这是开发服务器，长期运行使用下一节 Gunicorn。
 
@@ -60,17 +66,18 @@ cd gateway
 cd ~/projects/esp32-cam-app1
 sudo useradd --system --home-dir /opt/pet-watch --shell /usr/sbin/nologin petwatch
 sudo install -d -o petwatch -g petwatch -m 750 /opt/pet-watch
-sudo rsync -a --exclude=.env --exclude=__pycache__ gateway/ /opt/pet-watch/gateway/
+sudo rsync -a --exclude=.env --exclude=data --exclude=__pycache__ gateway/ /opt/pet-watch/gateway/
 sudo cp -a deploy /opt/pet-watch/
 sudo chown -R petwatch:petwatch /opt/pet-watch
 sudo -u petwatch python3 -m venv /opt/pet-watch/.venv
 sudo -u petwatch /opt/pet-watch/.venv/bin/pip install -r /opt/pet-watch/gateway/requirements.txt
 sudo -u petwatch cp /opt/pet-watch/gateway/.env.example /opt/pet-watch/gateway/.env
+sudo -u petwatch install -d -m 700 /opt/pet-watch/gateway/data
 sudo -u petwatch nano /opt/pet-watch/gateway/.env
 sudo chmod 600 /opt/pet-watch/gateway/.env
 ```
 
-在 `/opt/pet-watch/gateway/.env` 填入前面相同的摄像头地址与访问配置。部署 Tailscale Serve 时将 `COOKIE_SECURE=1`。该文件与源码目录下的开发 `.env` 是两个不同文件；修改服务配置要修改 `/opt` 下这一份。
+在 `/opt/pet-watch/gateway/.env` 填入前面相同的摄像头地址与访问配置。通过 `https://hamster.mitoto.cn` 使用时将 `COOKIE_SECURE=1`。该文件与源码目录下的开发 `.env` 是两个不同文件；修改服务配置要修改 `/opt` 下这一份。
 
 ```bash
 sudo install -m 644 deploy/pet-watch.service /etc/systemd/system/pet-watch.service
@@ -79,7 +86,7 @@ sudo systemctl enable --now pet-watch
 sudo systemctl status pet-watch --no-pager
 ```
 
-服务监听 `127.0.0.1:8080`。健康接口只检查网关：
+systemd 模板监听 `127.0.0.1:8080`；仓库的 `start-frp.sh` 为现有 frpc 链路监听 `0.0.0.0:8080`。两者都只允许一个 Gunicorn worker。健康接口只检查网关：
 
 ```bash
 curl -fsS http://127.0.0.1:8080/healthz
@@ -90,21 +97,20 @@ sudo journalctl -u pet-watch -n 80 --no-pager
 
 ## 4. 配置远程查看
 
-按 [Tailscale 指南](TAILSCALE.md) 安装、登录并启动 Serve。推荐命令为：
+按 [frp 指南](FRP.md) 确认本机 `frpc`、kzeng 上的 `frps` 和 nginx HTTPS 在线：
 
 ```bash
-sudo tailscale serve --bg http://127.0.0.1:8080
-sudo tailscale serve status
+./scripts/start-frp.sh --status
 ```
 
-使用命令输出的 `https://...ts.net` 地址访问；手机必须开启 Tailscale 且有访问权限。不要把示例域名当作实际地址。
+手机直接访问 `https://hamster.mitoto.cn`，无需安装额外客户端。若网关尚未启动，可运行 `./scripts/start-frp.sh`；脚本会复用已运行的 frpc 用户服务。
 
 ## 5. 持续运行与笔记本电源设置
 
 - Ubuntu 设置 → 电源 → 自动挂起：在接通电源时关闭自动挂起。屏幕熄灭不影响服务。
 - 第一轮验收先保持笔记本开盖、通风，确认不会睡眠。
 - 合盖行为受 GNOME、电源设置和 logind 配置共同影响；先检查当前行为，再决定是否修改。不要在未经验证时假定合盖后仍运行。
-- 检查 Tailscale 管理后台的设备密钥到期时间，在到期前重新认证；若决定关闭该设备的密钥到期，要同时评估设备丢失后的访问风险。
+- 定期用 `./scripts/start-frp.sh --status` 确认网关、frpc 和公网 HTTPS 三段均正常。
 
 本项目没有替你修改 Ubuntu 的电源、DNS、路由或账号配置。
 
@@ -118,7 +124,7 @@ sudo chmod 700 /opt/pet-watch/gateway.backup
 cd ~/projects/esp32-cam-app1
 git pull --ff-only
 sudo systemctl stop pet-watch
-sudo rsync -a --exclude=.env --exclude=__pycache__ gateway/ /opt/pet-watch/gateway/
+sudo rsync -a --exclude=.env --exclude=data --exclude=__pycache__ gateway/ /opt/pet-watch/gateway/
 sudo chown -R petwatch:petwatch /opt/pet-watch/gateway
 sudo -u petwatch /opt/pet-watch/.venv/bin/pip install -r /opt/pet-watch/gateway/requirements.txt
 sudo systemctl start pet-watch
@@ -142,7 +148,7 @@ sudo systemctl start pet-watch
 sudo systemctl disable --now pet-watch
 ```
 
-若要同时关闭远程入口，先查看 `tailscale serve status`。仅当该设备 Serve 完全由本项目使用时，执行 `sudo tailscale serve reset`；它会清除该设备全部 Serve 配置。
+若要同时关闭远程入口，停止本机 `frpc` 用户服务；不要在未确认其他映射用途时停用云服务器 frps。
 
 ## 故障定位
 
@@ -153,8 +159,11 @@ sudo systemctl disable --now pet-watch
 | 摄像头超时 | 摄像头 IP、独立电源、Wi-Fi、访客隔离；确认 Ubuntu 可以直接连接摄像头 |
 | 401 摄像头错误 | `CAMERA_KEY` 与板端是否一致 |
 | 登录反复回到登录页 | `COOKIE_SECURE=1` 必须用 HTTPS；检查地址和浏览器 cookie |
-| 手机无法访问，但 Ubuntu 本机正常 | Tailscale 登录／连接、Serve 状态、ACL、电脑是否睡眠 |
-| 画面慢 | 先用流畅档，检查上行带宽、Wi-Fi、Tailscale 是否中继；不预设瓶颈来自 ESP32 |
+| 手机无法访问，但 Ubuntu 本机正常 | `start-frp.sh --status`、frpc 日志、kzeng 上 frps/nginx、电脑是否睡眠 |
+| 画面慢 | 先用流畅档，检查 ESP32 Wi-Fi、家庭上行、frp 链路；不预设瓶颈来自 ESP32 |
+| 没有移动事件 | 检查 `MOTION_ENABLED=1`、事件页状态、ROI 是否覆盖活动区、面积阈值是否过高 |
+| 事件过多 | 缩小 ROI、提高像素／面积阈值；先观察灯光、窗帘和摄像头抖动 |
+| 服务报数据目录只读 | 确认 data 目录属于 `petwatch`，服务文件含 `ReadWritePaths=/opt/pet-watch/gateway/data` |
 | 暂停后仍有画面更新 | 其他浏览器可能仍在观看，或有一个正在结束的采集请求 |
 
 Gunicorn 必须保持一个 worker。不要直接加 `--workers 4`，否则会有多个独立采集循环争用摄像头。

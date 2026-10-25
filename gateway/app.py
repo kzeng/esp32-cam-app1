@@ -1,5 +1,6 @@
 """Pet Watch gateway. Run one worker with multiple threads; see deployment docs."""
 import hmac
+import math
 import os
 import secrets
 import threading
@@ -10,10 +11,13 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from flask import (Flask, Response, abort, jsonify, redirect, render_template, request,
+                   send_file, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from camera import Camera, CameraError
+from events import EventStore
+from motion import MotionService
 
 load_dotenv(Path(__file__).with_name(".env"))
 
@@ -47,6 +51,20 @@ fps = float(os.environ.get("TARGET_FPS", "6"))
 if not 1 <= fps <= 10:
     raise RuntimeError("TARGET_FPS must be between 1 and 10.")
 camera = Camera(camera_url, camera_key, fps)
+data_dir = Path(os.environ.get("DATA_DIR", Path(__file__).with_name("data")))
+retention_days = int(os.environ.get("EVENT_RETENTION_DAYS", "30"))
+quota_mb = int(os.environ.get("EVENT_QUOTA_MB", "2048"))
+background_fps = float(os.environ.get("MOTION_FPS", "2"))
+quiet_seconds = float(os.environ.get("MOTION_QUIET_SECONDS", "15"))
+if not 1 <= retention_days <= 3650 or not 100 <= quota_mb <= 102400:
+    raise RuntimeError("Event retention must be 1-3650 days and quota 100-102400 MB.")
+if not 0.2 <= background_fps <= fps or not 3 <= quiet_seconds <= 300:
+    raise RuntimeError("MOTION_FPS or MOTION_QUIET_SECONDS is outside the supported range.")
+event_store = EventStore(data_dir, retention_days, quota_mb * 1024 * 1024)
+motion_enabled = os.environ.get("MOTION_ENABLED", "1") == "1"
+motion_service = MotionService(camera, event_store, background_fps, quiet_seconds) if motion_enabled else None
+if motion_service:
+    motion_service.start()
 attempts = {}
 attempt_lock = threading.Lock()
 
@@ -134,7 +152,8 @@ def logout():
 @app.get("/")
 @login_required
 def index():
-    return render_template("index.html", camera_name=os.environ.get("CAMERA_NAME", "仓鼠的小窝"))
+    return render_template("index.html", camera_name=os.environ.get("CAMERA_NAME", "仓鼠的小窝"),
+                           event_summary=event_store.summary())
 
 
 @app.get("/healthz")
@@ -146,7 +165,9 @@ def health():
 @app.get("/api/status")
 @login_required
 def status():
-    return jsonify(camera.status())
+    result = camera.status()
+    result["motion"] = motion_service.status() if motion_service else {"enabled": False}
+    return jsonify(result)
 
 
 @app.get("/api/stream")
@@ -215,6 +236,79 @@ def flash():
         return jsonify(on=camera.flash(state))
     except CameraError as error:
         return jsonify(error=str(error)), 503
+
+
+@app.get("/events")
+@login_required
+def events_page():
+    filter_name = request.args.get("filter", "all")
+    local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    options = {"all": {}, "today": {"since": local_midnight}, "week": {"days": 7},
+               "unseen": {"unseen": True}}
+    if filter_name not in options:
+        filter_name = "all"
+    items = event_store.list_events(**options[filter_name])
+    return render_template("events.html", events=items, current_filter=filter_name)
+
+
+@app.get("/api/events/<int:event_id>/image/<role>")
+@login_required
+def event_image(event_id, role):
+    path = event_store.image_path(event_id, role)
+    if not path:
+        abort(404)
+    return send_file(path, mimetype="image/jpeg", conditional=True, max_age=0)
+
+
+@app.post("/api/events/<int:event_id>/viewed")
+@login_required
+def event_viewed(event_id):
+    if not event_store.mark_viewed(event_id):
+        abort(404)
+    return redirect(request.referrer if request.referrer and urlsplit(request.referrer).netloc == request.host else
+                    url_for("events_page"))
+
+
+@app.post("/api/events/<int:event_id>/delete")
+@login_required
+def event_delete(event_id):
+    if not event_store.delete_event(event_id):
+        abort(404)
+    return redirect(url_for("events_page"))
+
+
+@app.get("/motion")
+@login_required
+def motion_page():
+    return render_template("motion.html", settings=event_store.settings(), enabled=motion_enabled)
+
+
+@app.get("/api/motion-settings")
+@login_required
+def motion_settings_get():
+    return jsonify(event_store.settings())
+
+
+@app.post("/api/motion-settings")
+@login_required
+def motion_settings_update():
+    payload = request.get_json(silent=True)
+    try:
+        roi = [float(payload[key]) for key in ("roi_x", "roi_y", "roi_w", "roi_h")]
+        pixel_threshold = int(payload["pixel_threshold"])
+        area_ratio = float(payload["area_ratio"])
+    except (TypeError, KeyError, ValueError):
+        return jsonify(error="检测区域或灵敏度参数无效。"), 400
+    x, y, width, height = roi
+    if (not all(math.isfinite(value) for value in (*roi, pixel_threshold, area_ratio)) or
+            not 0 <= x < 1 or not 0 <= y < 1 or not 0.05 <= width <= 1 or
+            not 0.05 <= height <= 1 or x + width > 1.000001 or y + height > 1.000001 or
+            not 5 <= pixel_threshold <= 100 or not 0.002 <= area_ratio <= 0.5):
+        return jsonify(error="检测区域超出画面，或阈值不在允许范围内。"), 400
+    values = event_store.update_settings(roi, pixel_threshold, area_ratio)
+    if motion_service:
+        motion_service.reset_background()
+    return jsonify(ok=True, **values)
 
 
 if __name__ == "__main__":

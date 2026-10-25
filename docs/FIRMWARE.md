@@ -62,7 +62,7 @@ nano firmware/include/secrets.h
 #define CAMERA_KEY "你生成的随机十六进制密钥"
 ```
 
-字符串中若有双引号或反斜杠，按 C++ 字符串规则转义。不要把实际配置复制到公开文档、聊天或提交中。`.gitignore` 已排除 `secrets.h`。Tailscale 账号和登录密码不写入这里。
+字符串中若有双引号或反斜杠，按 C++ 字符串规则转义。不要把实际配置复制到公开文档、聊天或提交中。`.gitignore` 已排除 `secrets.h`。frp、云服务器和网页登录凭据都不写入固件。
 
 没有 `secrets.h` 时源码仍允许编译，但固件会打印配置提示并停止初始化；示例 `CHANGE_` 密钥不会运行。
 

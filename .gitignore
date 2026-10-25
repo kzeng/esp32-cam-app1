@@ -30,6 +30,7 @@ htmlcov/
 # Local runtime data
 captures/
 recordings/
+gateway/data/
 logs/
 *.log
 *.pid

@@ -7,6 +7,10 @@ let effectiveResolution = "";
 let flashOn = false, flashChanging = false;
 
 $("today").textContent = new Intl.DateTimeFormat("zh-CN", {month: "long", day: "numeric", weekday: "short"}).format(new Date());
+document.querySelectorAll("time.local-time").forEach((node) => {
+  const date = new Date(node.dateTime);
+  if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat("zh-CN", {hour: "2-digit", minute: "2-digit"}).format(date);
+});
 
 function toast(message) {
   $("toast").textContent = message;

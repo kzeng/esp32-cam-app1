@@ -1,4 +1,4 @@
-"""One demand-driven capture loop shared by all viewers (one process only)."""
+"""One capture loop shared by viewers and the background motion detector."""
 import threading
 import time
 
@@ -21,6 +21,7 @@ class Camera:
         self.condition = threading.Condition()
         self.io_lock = threading.Lock()
         self.viewers = 0
+        self.monitor_fps = 0.0
         self.frame = None
         self.sequence = 0
         self.updated = None
@@ -43,6 +44,22 @@ class Camera:
             self.viewers = max(0, self.viewers - 1)
             self.condition.notify_all()
 
+    def enable_monitoring(self, fps):
+        """Keep capture active for motion detection without counting a viewer."""
+        if not 0.2 <= fps <= self.fps:
+            raise ValueError("Background capture FPS is outside the supported range.")
+        with self.condition:
+            self.monitor_fps = fps
+            if self.worker is None:
+                self.worker = threading.Thread(target=self._run, name="camera-capture", daemon=True)
+                self.worker.start()
+            self.condition.notify_all()
+
+    def disable_monitoring(self):
+        with self.condition:
+            self.monitor_fps = 0.0
+            self.condition.notify_all()
+
     @staticmethod
     def _message(error):
         if isinstance(error, requests.Timeout):
@@ -63,7 +80,8 @@ class Camera:
             client.headers.update(self.headers)
             while True:
                 with self.condition:
-                    self.condition.wait_for(lambda: self.viewers > 0)
+                    self.condition.wait_for(lambda: self.viewers > 0 or self.monitor_fps > 0)
+                    target_fps = self.fps if self.viewers > 0 else self.monitor_fps
                 started = time.monotonic()
                 failed = False
                 try:
@@ -96,7 +114,7 @@ class Camera:
                         self.frame = None
                         self.updated = None
                         self.condition.notify_all()
-                delay = 1.5 if failed else max(0, 1 / self.fps - (time.monotonic() - started))
+                delay = 1.5 if failed else max(0, 1 / target_fps - (time.monotonic() - started))
                 time.sleep(delay)
 
     def next_frame(self, after, timeout=10):
@@ -164,12 +182,13 @@ class Camera:
         with self.condition:
             age = None if self.updated is None else time.monotonic() - self.updated
             return {
-                "state": ("idle" if self.viewers == 0 else
+                "state": ("idle" if self.viewers == 0 and self.monitor_fps == 0 else
                           "live" if age is not None and age <= self.FRESH_SECONDS else
                           "offline" if self.last_error else "connecting"),
                 "frame_age_s": round(age, 1) if age is not None else None,
                 "sequence": self.sequence,
                 "viewers": self.viewers,
+                "monitoring": self.monitor_fps > 0,
                 "resolution": self.resolution,
                 "error": self.last_error,
             }
