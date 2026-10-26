@@ -21,6 +21,10 @@ JPEG = b"\xff\xd8route-test\xff\xd9"
 
 
 class AppRouteTests(unittest.TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        TEST_DATA.cleanup()
+
     def setUp(self):
         application.app.config.update(TESTING=True)
         self.client = application.app.test_client()
@@ -62,6 +66,43 @@ class AppRouteTests(unittest.TestCase):
 
         anonymous = application.app.test_client()
         self.assertEqual(anonymous.get("/api/motion-settings").status_code, 401)
+
+    def test_cache_policy_and_versioned_static_assets(self):
+        page = self.client.get("/events")
+        self.assertEqual(page.headers["Cache-Control"], "no-store")
+        self.assertIn(b"style.css?v=", page.data)
+        static = self.client.get("/static/style.css")
+        self.assertIn("immutable", static.headers["Cache-Control"])
+        static.close()
+
+        event_id = application.event_store.begin_motion(
+            datetime.now(timezone.utc), JPEG, JPEG, 0.2
+        )
+        image = self.client.get(f"/api/events/{event_id}/image/thumb")
+        self.assertEqual(image.status_code, 200)
+        self.assertIn("private", image.headers["Cache-Control"])
+        image.close()
+
+    def test_batch_actions_are_bounded_and_idempotent(self):
+        first = application.event_store.begin_motion(datetime.now(timezone.utc), JPEG, JPEG, 0.2)
+        second = application.event_store.begin_motion(datetime.now(timezone.utc), JPEG, JPEG, 0.2)
+        headers = {"X-CSRF-Token": "test-csrf"}
+        viewed = self.client.post("/api/events/batch", json={"action": "viewed", "ids": [first, second]},
+                                  headers=headers)
+        self.assertEqual(viewed.status_code, 200)
+        self.assertEqual(set(viewed.get_json()["updated"]), {first, second})
+
+        deleted = self.client.post("/api/events/batch", json={"action": "delete", "ids": [first, second]},
+                                   headers=headers)
+        self.assertEqual(deleted.status_code, 200)
+        retry = self.client.post("/api/events/batch", json={"action": "delete", "ids": [first, second]},
+                                 headers=headers)
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(set(retry.get_json()["missing"]), {first, second})
+
+        invalid = self.client.post("/api/events/batch", json={"action": "delete", "ids": list(range(101))},
+                                   headers=headers)
+        self.assertEqual(invalid.status_code, 400)
 
 
 if __name__ == "__main__":

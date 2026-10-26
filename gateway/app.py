@@ -38,6 +38,8 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
     MAX_CONTENT_LENGTH=4096,
 )
+EVENT_PAGE_SIZE = 20
+EVENT_BATCH_LIMIT = 100
 password_hash = generate_password_hash(setting("APP_PASSWORD", 12))
 camera_key = setting("CAMERA_KEY", 32)
 if len(camera_key) > 128 or not camera_key.isascii() or not camera_key.isalnum():
@@ -78,6 +80,17 @@ def csrf_token():
 app.jinja_env.globals["csrf_token"] = csrf_token
 
 
+@app.url_defaults
+def version_static_assets(endpoint, values):
+    if endpoint != "static" or "filename" not in values or "v" in values:
+        return
+    path = Path(app.static_folder) / values["filename"]
+    try:
+        values["v"] = path.stat().st_mtime_ns
+    except OSError:
+        pass
+
+
 @app.before_request
 def protect():
     if request.method == "POST":
@@ -89,7 +102,12 @@ def protect():
 
 @app.after_request
 def headers(response):
-    response.headers["Cache-Control"] = "no-store"
+    if request.endpoint == "static":
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif request.endpoint == "event_image":
+        response.headers["Cache-Control"] = "private, max-age=300"
+    else:
+        response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -247,8 +265,15 @@ def events_page():
                "unseen": {"unseen": True}}
     if filter_name not in options:
         filter_name = "all"
-    items = event_store.list_events(**options[filter_name])
-    return render_template("events.html", events=items, current_filter=filter_name)
+    try:
+        page = min(max(int(request.args.get("page", "1")), 1), 10000)
+    except ValueError:
+        page = 1
+    items = event_store.list_events(**options[filter_name], limit=EVENT_PAGE_SIZE + 1,
+                                    offset=(page - 1) * EVENT_PAGE_SIZE)
+    return render_template("events.html", events=items[:EVENT_PAGE_SIZE],
+                           current_filter=filter_name, page=page,
+                           has_next=len(items) > EVENT_PAGE_SIZE)
 
 
 @app.get("/api/events/<int:event_id>/image/<role>")
@@ -257,14 +282,19 @@ def event_image(event_id, role):
     path = event_store.image_path(event_id, role)
     if not path:
         abort(404)
-    return send_file(path, mimetype="image/jpeg", conditional=True, max_age=0)
+    return send_file(path, mimetype="image/jpeg", conditional=True, max_age=300)
+
+
+def json_action_requested():
+    return request.is_json or "application/json" in request.headers.get("Accept", "")
 
 
 @app.post("/api/events/<int:event_id>/viewed")
 @login_required
 def event_viewed(event_id):
-    if not event_store.mark_viewed(event_id):
-        abort(404)
+    result = event_store.mark_viewed_many([event_id])
+    if json_action_requested():
+        return jsonify(ok=True, action="viewed", **result)
     return redirect(request.referrer if request.referrer and urlsplit(request.referrer).netloc == request.host else
                     url_for("events_page"))
 
@@ -272,9 +302,28 @@ def event_viewed(event_id):
 @app.post("/api/events/<int:event_id>/delete")
 @login_required
 def event_delete(event_id):
-    if not event_store.delete_event(event_id):
-        abort(404)
+    result = event_store.delete_events([event_id])
+    if json_action_requested():
+        return jsonify(ok=True, action="delete", **result)
     return redirect(url_for("events_page"))
+
+
+@app.post("/api/events/batch")
+@login_required
+def event_batch():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or payload.get("action") not in {"viewed", "delete"}:
+        return jsonify(error="请选择有效的批量操作。"), 400
+    raw_ids = payload.get("ids")
+    if (not isinstance(raw_ids, list) or not raw_ids or len(raw_ids) > EVENT_BATCH_LIMIT or
+            any(type(event_id) is not int or event_id <= 0 for event_id in raw_ids)):
+        return jsonify(error=f"请选择 1-{EVENT_BATCH_LIMIT} 个有效事件。"), 400
+    ids = list(dict.fromkeys(raw_ids))
+    if payload["action"] == "viewed":
+        result = event_store.mark_viewed_many(ids)
+    else:
+        result = event_store.delete_events(ids)
+    return jsonify(ok=True, action=payload["action"], **result)
 
 
 @app.get("/motion")

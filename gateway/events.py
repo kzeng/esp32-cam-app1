@@ -5,8 +5,12 @@ import os
 import shutil
 import sqlite3
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import cv2
+import numpy as np
 
 
 IMAGE_ROLES = {"pre", "trigger", "peak"}
@@ -24,12 +28,14 @@ class EventStore:
     def __init__(self, root, retention_days=30, quota_bytes=2 * 1024**3):
         self.root = Path(root).resolve()
         self.image_root = self.root / "events"
+        self.trash_root = self.root / ".trash"
         self.db_path = self.root / "events.sqlite3"
         self.retention_days = retention_days
         self.quota_bytes = quota_bytes
         self.lock = threading.RLock()
         self.root.mkdir(parents=True, exist_ok=True)
         self.image_root.mkdir(parents=True, exist_ok=True)
+        self.trash_root.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self):
@@ -104,6 +110,19 @@ class EventStore:
             os.fsync(stream.fileno())
         os.replace(temporary, path)
 
+    @staticmethod
+    def _thumbnail(jpeg, width=360):
+        image = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None or image.shape[1] <= width:
+            return jpeg
+        height = max(1, round(image.shape[0] * width / image.shape[1]))
+        image = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+        ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 76])
+        return encoded.tobytes() if ok else jpeg
+
+    def _write_thumbnail(self, directory, jpeg):
+        self._atomic_write(directory / "thumb.jpg", self._thumbnail(jpeg))
+
     def begin_motion(self, started_at, pre_jpeg, trigger_jpeg, score):
         with self.lock, self._connect() as db:
             stamp = iso(started_at)
@@ -120,6 +139,7 @@ class EventStore:
                     relative = path.relative_to(self.root).as_posix()
                     db.execute("INSERT INTO images(event_id,role,relative_path,bytes) VALUES(?,?,?,?)",
                                (event_id, role, relative, len(jpeg)))
+                self._write_thumbnail(directory, trigger_jpeg)
             except Exception:
                 shutil.rmtree(directory, ignore_errors=True)
                 raise
@@ -136,6 +156,7 @@ class EventStore:
             if self.root not in path.parents:
                 raise RuntimeError("Unsafe event image path")
             self._atomic_write(path, jpeg)
+            self._write_thumbnail(path.parent, jpeg)
             db.execute("UPDATE images SET bytes=? WHERE event_id=? AND role='peak'", (len(jpeg), event_id))
             db.execute("UPDATE events SET peak_score=? WHERE id=?", (score, event_id))
 
@@ -160,7 +181,7 @@ class EventStore:
                 (kind, stamp, stamp, stamp),
             ).lastrowid
 
-    def list_events(self, days=None, since=None, unseen=False, limit=100):
+    def list_events(self, days=None, since=None, unseen=False, limit=100, offset=0):
         clauses, arguments = [], []
         if since:
             clauses.append("started_at >= ?")
@@ -171,12 +192,12 @@ class EventStore:
         if unseen:
             clauses.append("viewed = 0")
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
-        arguments.append(min(max(int(limit), 1), 200))
+        arguments.extend((min(max(int(limit), 1), 200), max(int(offset), 0)))
         with self.lock, self._connect() as db:
             rows = db.execute(
                 "SELECT e.*, GROUP_CONCAT(i.role) AS image_roles FROM events e "
                 "LEFT JOIN images i ON i.event_id=e.id" + where +
-                " GROUP BY e.id ORDER BY e.started_at DESC LIMIT ?", arguments,
+                " GROUP BY e.id ORDER BY e.started_at DESC LIMIT ? OFFSET ?", arguments,
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -192,35 +213,98 @@ class EventStore:
         return {"today": count, "latest": recent[0] if recent else None}
 
     def mark_viewed(self, event_id):
+        return event_id in self.mark_viewed_many([event_id])["updated"]
+
+    def mark_viewed_many(self, event_ids):
+        ids = list(dict.fromkeys(int(event_id) for event_id in event_ids))
+        if not ids:
+            return {"updated": [], "missing": []}
+        placeholders = ",".join("?" for _ in ids)
         with self.lock, self._connect() as db:
-            return db.execute("UPDATE events SET viewed=1 WHERE id=?", (event_id,)).rowcount == 1
+            existing = {row[0] for row in db.execute(
+                f"SELECT id FROM events WHERE id IN ({placeholders})", ids
+            )}
+            if existing:
+                selected = sorted(existing)
+                marks = ",".join("?" for _ in selected)
+                db.execute(f"UPDATE events SET viewed=1 WHERE id IN ({marks})", selected)
+        return {"updated": [event_id for event_id in ids if event_id in existing],
+                "missing": [event_id for event_id in ids if event_id not in existing]}
 
     def image_path(self, event_id, role):
-        if role not in IMAGE_ROLES:
+        if role not in IMAGE_ROLES | {"thumb"}:
             return None
         with self.lock, self._connect() as db:
             row = db.execute(
-                "SELECT relative_path FROM images WHERE event_id=? AND role=?", (event_id, role)
+                "SELECT relative_path FROM images WHERE event_id=? AND role=?",
+                (event_id, "peak" if role == "thumb" else role),
             ).fetchone()
         if not row:
             return None
         path = (self.root / row["relative_path"]).resolve()
+        if role == "thumb":
+            thumbnail = path.with_name("thumb.jpg")
+            if not thumbnail.is_file() and path.is_file():
+                try:
+                    self._write_thumbnail(path.parent, path.read_bytes())
+                except OSError:
+                    return path
+            path = thumbnail if thumbnail.is_file() else path
         if self.root not in path.parents or not path.is_file():
             return None
         return path
 
     def delete_event(self, event_id):
-        with self.lock, self._connect() as db:
-            rows = db.execute("SELECT relative_path FROM images WHERE event_id=?", (event_id,)).fetchall()
-            deleted = db.execute("DELETE FROM events WHERE id=?", (event_id,)).rowcount == 1
-        directories = set()
-        for row in rows:
-            path = (self.root / row["relative_path"]).resolve()
-            if self.root in path.parents:
-                directories.add(path.parent)
-        for directory in directories:
-            shutil.rmtree(directory, ignore_errors=True)
-        return deleted
+        return event_id in self.delete_events([event_id])["deleted"]
+
+    @staticmethod
+    def _remove_trash(paths):
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+
+    def delete_events(self, event_ids):
+        ids = list(dict.fromkeys(int(event_id) for event_id in event_ids))
+        if not ids:
+            return {"deleted": [], "missing": []}
+        placeholders = ",".join("?" for _ in ids)
+        moved = []
+        existing = set()
+        with self.lock:
+            try:
+                with self._connect() as db:
+                    existing = {row[0] for row in db.execute(
+                        f"SELECT id FROM events WHERE id IN ({placeholders})", ids
+                    )}
+                    rows = db.execute(
+                        f"SELECT event_id,relative_path FROM images WHERE event_id IN ({placeholders})", ids
+                    ).fetchall()
+                    directories = set()
+                    for row in rows:
+                        path = (self.root / row["relative_path"]).resolve()
+                        if self.root in path.parents:
+                            directories.add(path.parent)
+                    for source in directories:
+                        if not source.is_dir():
+                            continue
+                        destination = self.trash_root / f"{source.name}-{uuid.uuid4().hex}"
+                        os.replace(source, destination)
+                        moved.append((source, destination))
+                    if existing:
+                        selected = sorted(existing)
+                        marks = ",".join("?" for _ in selected)
+                        db.execute(f"DELETE FROM events WHERE id IN ({marks})", selected)
+            except Exception:
+                for source, destination in reversed(moved):
+                    if destination.exists() and not source.exists():
+                        source.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(destination, source)
+                raise
+        if moved:
+            threading.Thread(target=self._remove_trash,
+                             args=([destination for _, destination in moved],),
+                             name="event-trash-cleanup", daemon=True).start()
+        return {"deleted": [event_id for event_id in ids if event_id in existing],
+                "missing": [event_id for event_id in ids if event_id not in existing]}
 
     def cleanup(self, now=None):
         now = now or utc_now()

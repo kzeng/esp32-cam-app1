@@ -18,17 +18,32 @@
     <nav class="filters" aria-label="事件筛选">
       {% for value,label in [('all','全部'),('today','今天'),('week','最近 7 天'),('unseen','未查看')] %}<a class="{% if current_filter == value %}active{% endif %}" href="{{ url_for('events_page', filter=value) }}">{{ label }}</a>{% endfor %}
     </nav>
-    {% if events %}<div class="event-list">
-      {% for event in events %}<article class="event-card {% if not event.viewed %}unseen{% endif %}">
+    {% if events %}
+    <div class="selection-row">
+      <label><input id="selectPage" type="checkbox"> 选择本页</label><span>每页最多 {{ events|length }} 条，批量操作只发送一次请求。</span>
+    </div>
+    <div class="event-list">
+      {% for event in events %}<article class="event-card {% if not event.viewed %}unseen{% endif %}" data-event-id="{{ event.id }}" data-kind="{{ event.kind }}">
+        <label class="event-select"><input class="event-checkbox" type="checkbox" value="{{ event.id }}" aria-label="选择事件 {{ event.id }}"></label>
         {% if event.kind == 'motion' %}
-          <a class="event-image" href="{{ url_for('event_image', event_id=event.id, role='peak') }}"><img loading="lazy" src="{{ url_for('event_image', event_id=event.id, role='peak') }}" alt="移动事件峰值画面"></a>
+          <a class="event-image" href="{{ url_for('event_image', event_id=event.id, role='peak') }}"><img loading="lazy" src="{{ url_for('event_image', event_id=event.id, role='thumb') }}" alt="移动事件峰值画面"></a>
           <div class="event-body"><div><span class="event-tag">{% if not event.viewed %}新事件{% else %}移动{% endif %}</span><h2><time class="local-time" datetime="{{ event.started_at }}">{{ event.started_at }}</time></h2><p>持续 {{ '%.1f'|format(event.duration_s) }} 秒 · 变化 {{ '%.1f'|format(event.peak_score * 100) }}%</p></div>
-          <details><summary>查看三张留图</summary><div class="event-frames">{% for role,label in [('pre','触发前'),('trigger','首次触发'),('peak','变化峰值')] %}<figure><a href="{{ url_for('event_image', event_id=event.id, role=role) }}"><img loading="lazy" src="{{ url_for('event_image', event_id=event.id, role=role) }}" alt="{{ label }}"></a><figcaption>{{ label }}</figcaption></figure>{% endfor %}</div></details>
-          <div class="event-actions">{% if not event.viewed %}<form action="{{ url_for('event_viewed', event_id=event.id) }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary" type="submit">标记已查看</button></form>{% endif %}<form class="delete-event" action="{{ url_for('event_delete', event_id=event.id) }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="danger-button" type="submit">删除</button></form></div></div>
+          <details><summary>查看三张留图</summary><div class="event-frames">{% for role,label in [('pre','触发前'),('trigger','首次触发'),('peak','变化峰值')] %}<figure><a href="{{ url_for('event_image', event_id=event.id, role=role) }}"><img data-src="{{ url_for('event_image', event_id=event.id, role=role) }}" alt="{{ label }}"></a><figcaption>{{ label }}</figcaption></figure>{% endfor %}</div></details>
+          <div class="event-actions">{% if not event.viewed %}<form class="event-action" data-action="viewed" action="{{ url_for('event_viewed', event_id=event.id) }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary" type="submit">标记已查看</button></form>{% endif %}<form class="event-action" data-action="delete" action="{{ url_for('event_delete', event_id=event.id) }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="danger-button" type="submit">删除</button></form></div></div>
         {% else %}
-          <div class="state-icon" aria-hidden="true">{% if event.kind == 'camera_offline' %}×{% else %}✓{% endif %}</div><div class="event-body"><span class="event-tag">设备状态</span><h2>{% if event.kind == 'camera_offline' %}摄像头离线{% else %}摄像头已恢复{% endif %}</h2><p><time class="local-time" datetime="{{ event.started_at }}">{{ event.started_at }}</time></p></div>
+          <div class="state-icon" aria-hidden="true">{% if event.kind == 'camera_offline' %}×{% else %}✓{% endif %}</div><div class="event-body"><span class="event-tag">设备状态</span><h2>{% if event.kind == 'camera_offline' %}摄像头离线{% else %}摄像头已恢复{% endif %}</h2><p><time class="local-time" datetime="{{ event.started_at }}">{{ event.started_at }}</time></p><div class="event-actions"><form class="event-action" data-action="delete" action="{{ url_for('event_delete', event_id=event.id) }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="danger-button" type="submit">删除</button></form></div></div>
         {% endif %}
       </article>{% endfor %}
-    </div>{% else %}<section class="empty-state"><img src="{{ url_for('static', filename='hamster.svg') }}" alt=""><h2>还没有符合条件的事件</h2><p>检测服务会安静地守着，有动静再来报到。</p></section>{% endif %}
+    </div>
+    <nav class="pagination" aria-label="事件分页">
+      {% if page > 1 %}<a class="secondary" href="{{ url_for('events_page', filter=current_filter, page=page-1) }}">上一页</a>{% endif %}
+      <span>第 {{ page }} 页</span>
+      {% if has_next %}<a class="secondary" href="{{ url_for('events_page', filter=current_filter, page=page+1) }}">下一页</a>{% endif %}
+    </nav>
+    <div id="batchBar" class="batch-bar" hidden aria-live="polite">
+      <strong>已选择 <span id="selectedCount">0</span> 项</strong>
+      <div><button id="batchViewed" class="secondary" type="button">标记已查看</button><button id="batchDelete" class="danger-button" type="button">删除所选</button></div>
+    </div>
+    {% else %}<section class="empty-state"><img src="{{ url_for('static', filename='hamster.svg') }}" alt=""><h2>还没有符合条件的事件</h2><p>检测服务会安静地守着，有动静再来报到。</p></section>{% endif %}
   </main><footer>小窝看护 <span>事件图片仅登录后可访问</span></footer>
-</div></body></html>
+</div><div id="toast" class="toast" hidden role="status"></div></body></html>

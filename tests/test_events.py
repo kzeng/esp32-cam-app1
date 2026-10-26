@@ -58,6 +58,27 @@ class EventStoreTests(unittest.TestCase):
         self.assertIsNone(self.store.image_path(event_id, "peak"))
         self.assertEqual(self.store.list_events()[0]["kind"], "camera_offline")
 
+    def test_pagination_and_batch_operations(self):
+        ids = [self.store.record_state("camera_offline") for _ in range(4)]
+        self.assertEqual(len(self.store.list_events(limit=2)), 2)
+        self.assertEqual(len(self.store.list_events(limit=2, offset=2)), 2)
+
+        viewed = self.store.mark_viewed_many([ids[0], ids[1], 999999])
+        self.assertEqual(set(viewed["updated"]), {ids[0], ids[1]})
+        self.assertEqual(viewed["missing"], [999999])
+
+        deleted = self.store.delete_events([ids[0], ids[2], 999999])
+        self.assertEqual(set(deleted["deleted"]), {ids[0], ids[2]})
+        self.assertEqual(deleted["missing"], [999999])
+
+    def test_thumbnail_is_available_and_removed_with_event(self):
+        event_id = self.store.begin_motion(datetime.now(timezone.utc), JPEG, JPEG, 0.2)
+        thumbnail = self.store.image_path(event_id, "thumb")
+        self.assertTrue(thumbnail.is_file())
+        event_directory = thumbnail.parent
+        self.store.delete_events([event_id])
+        self.assertFalse(event_directory.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

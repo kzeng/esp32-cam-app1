@@ -103,17 +103,18 @@
 | `POST /api/quality` | JSON `{"resolution":"standard"}`，要求会话及 `X-CSRF-Token` |
 | `GET /api/flash` | 登录后读取摄像头实际补灯状态 |
 | `POST /api/flash` | JSON `{"on":true}`，要求会话及 `X-CSRF-Token`；控制补灯 |
-| `GET /events` | 登录后的事件列表、筛选和三张留图 |
-| `GET /api/events/<id>/image/<role>` | 读取 `pre` / `trigger` / `peak` 私有 JPEG |
+| `GET /events` | 登录后的事件列表、筛选、每页 20 条和三张留图 |
+| `GET /api/events/<id>/image/<role>` | 读取 `pre` / `trigger` / `peak` 或列表 `thumb` 私有 JPEG |
 | `POST /api/events/<id>/viewed` | 标记事件已查看，要求 CSRF |
 | `POST /api/events/<id>/delete` | 删除事件和全部图片，要求 CSRF |
+| `POST /api/events/batch` | 单请求批量确认或删除最多 100 个事件，要求 CSRF |
 | `GET /motion` | ROI 与检测灵敏度页面 |
 | `GET/POST /api/motion-settings` | 读取／保存 ROI、像素阈值和面积阈值；POST 要求 CSRF |
 | `GET /healthz` | 仅代表网关 HTTP 服务存活，不代表摄像头在线 |
 
 `/api/status` 状态：idle 表示观看与检测均未要求采集，connecting 表示等待首帧，live 表示网关最近收到新鲜帧，offline 表示采集异常；响应还包含检测是否开启、当前事件和最近变化分数。它不是对手机端播放帧率或全链路延迟的测量。
 
-部署只允许 **一个 Gunicorn worker**，以 16 个线程承接流和普通请求。状态、帧和检测线程在进程内共享，增加 worker 会产生重复采集与重复事件。SQLite 使用 WAL；图片写入目录必须对服务用户可写。网页会话有效期 12 小时；已建立的流在请求开始时认证，不逐帧验证，退出／到期通过关闭或重建连接生效。轮换 `SECRET_KEY` 并重启网关可使旧 cookie 失效。
+部署只允许 **一个 Gunicorn worker**，以 16 个线程承接流和普通请求。状态、帧和检测线程在进程内共享，增加 worker 会产生重复采集与重复事件。SQLite 使用 WAL；图片写入目录必须对服务用户可写。静态资源使用版本化长期缓存，事件图片只允许私有短期缓存；HTML、API 与实时流不缓存。公网 nginx 对页面与 API 限速，静态资源和事件图片按 URI 豁免，避免资源并发加载被误判为密集操作。frpc 绑定家庭网卡源地址、关闭 TCP 多路复用并使用连接池，防止隧道控制连接进入本机全局代理。网页会话有效期 12 小时；已建立的流在请求开始时认证，不逐帧验证，退出／到期通过关闭或重建连接生效。轮换 `SECRET_KEY` 并重启网关可使旧 cookie 失效。
 
 ## 官方参考
 
