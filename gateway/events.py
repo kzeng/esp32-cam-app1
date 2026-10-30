@@ -12,6 +12,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from watermark import watermark_jpeg
+
 
 IMAGE_ROLES = {"pre", "trigger", "peak"}
 
@@ -123,7 +125,10 @@ class EventStore:
     def _write_thumbnail(self, directory, jpeg):
         self._atomic_write(directory / "thumb.jpg", self._thumbnail(jpeg))
 
-    def begin_motion(self, started_at, pre_jpeg, trigger_jpeg, score):
+    def begin_motion(self, started_at, pre_jpeg, trigger_jpeg, score,
+                     pre_captured_at=None, trigger_captured_at=None):
+        pre_captured_at = pre_captured_at or started_at
+        trigger_captured_at = trigger_captured_at or started_at
         with self.lock, self._connect() as db:
             stamp = iso(started_at)
             cursor = db.execute(
@@ -133,19 +138,29 @@ class EventStore:
             event_id = cursor.lastrowid
             directory = self._event_directory(event_id, started_at)
             try:
-                for role, jpeg in (("pre", pre_jpeg), ("trigger", trigger_jpeg), ("peak", trigger_jpeg)):
+                frames = (
+                    ("pre", pre_jpeg, pre_captured_at),
+                    ("trigger", trigger_jpeg, trigger_captured_at),
+                    ("peak", trigger_jpeg, trigger_captured_at),
+                )
+                trigger_watermarked = None
+                for role, jpeg, captured_at in frames:
+                    watermarked = watermark_jpeg(jpeg, captured_at)
                     path = directory / f"{role}.jpg"
-                    self._atomic_write(path, jpeg)
+                    self._atomic_write(path, watermarked)
                     relative = path.relative_to(self.root).as_posix()
                     db.execute("INSERT INTO images(event_id,role,relative_path,bytes) VALUES(?,?,?,?)",
-                               (event_id, role, relative, len(jpeg)))
-                self._write_thumbnail(directory, trigger_jpeg)
+                               (event_id, role, relative, len(watermarked)))
+                    if role == "trigger":
+                        trigger_watermarked = watermarked
+                self._write_thumbnail(directory, trigger_watermarked)
             except Exception:
                 shutil.rmtree(directory, ignore_errors=True)
                 raise
             return event_id
 
-    def update_peak(self, event_id, jpeg, score):
+    def update_peak(self, event_id, jpeg, score, captured_at=None):
+        watermarked = watermark_jpeg(jpeg, captured_at or utc_now())
         with self.lock, self._connect() as db:
             row = db.execute(
                 "SELECT relative_path FROM images WHERE event_id=? AND role='peak'", (event_id,)
@@ -155,9 +170,10 @@ class EventStore:
             path = (self.root / row["relative_path"]).resolve()
             if self.root not in path.parents:
                 raise RuntimeError("Unsafe event image path")
-            self._atomic_write(path, jpeg)
-            self._write_thumbnail(path.parent, jpeg)
-            db.execute("UPDATE images SET bytes=? WHERE event_id=? AND role='peak'", (len(jpeg), event_id))
+            self._atomic_write(path, watermarked)
+            self._write_thumbnail(path.parent, watermarked)
+            db.execute("UPDATE images SET bytes=? WHERE event_id=? AND role='peak'",
+                       (len(watermarked), event_id))
             db.execute("UPDATE events SET peak_score=? WHERE id=?", (score, event_id))
 
     def finish_motion(self, event_id, ended_at):

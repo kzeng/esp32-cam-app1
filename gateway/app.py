@@ -18,6 +18,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from camera import Camera, CameraError
 from events import EventStore
 from motion import MotionService
+from watermark import watermark_jpeg
 
 load_dotenv(Path(__file__).with_name(".env"))
 
@@ -201,7 +202,7 @@ def stream():
         try:
             while True:
                 try:
-                    sequence, jpeg = camera.next_frame(sequence)
+                    sequence, jpeg, _ = camera.next_frame(sequence)
                 except CameraError:
                     break  # Browser status polling initiates reconnection.
                 yield (b"--petframe\r\nContent-Type: image/jpeg\r\nContent-Length: " +
@@ -218,11 +219,11 @@ def stream():
 @login_required
 def snapshot():
     try:
-        jpeg = camera.snapshot()
+        jpeg, captured_at = camera.snapshot()
     except CameraError as error:
         return jsonify(error=str(error)), 503
-    filename = datetime.now(timezone.utc).strftime("pet-%Y%m%d-%H%M%S.jpg")
-    return Response(jpeg, content_type="image/jpeg", headers={
+    filename = captured_at.strftime("pet-%Y%m%d-%H%M%S.jpg")
+    return Response(watermark_jpeg(jpeg, captured_at), content_type="image/jpeg", headers={
         "Content-Disposition": f'attachment; filename="{filename}"',
     })
 

@@ -57,7 +57,7 @@
 - 公网入口，网页访问密码应至少 12 位，不要重用 Wi-Fi 密码，也不要用发在聊天记录里的密码。
 - 手机到服务器是标准 HTTPS；服务器到本机走 frp token 认证的隧道。
 - frps 的 `proxyBindAddr` 固定为 `127.0.0.1`，服务器 `8080` 仅供本机 nginx 使用，不对公网提供明文入口。
-- frpc 与 frps 均关闭 TCP 多路复用；frpc 预建 10 条工作连接，frps 允许每个代理最多 20 条连接池。两端改动后分别重启服务并检查日志。
+- frpc 与 frps 均开启 TCP 多路复用；10 个逻辑工作连接复用 1 条物理 TCP，既承接浏览器资源并发，又避免家庭 NAT 回收大量独立空闲连接后，两端仍长期保留表面 `ESTABLISHED`、实际不可用的连接。mux 保活间隔为 15 秒，底层 TCP 保活为 30 秒；两端改动后分别重启服务并检查日志。
 - frpc 用 `transport.connectServerLocalIP` 绑定当前家庭网卡地址，防止控制连接被 Mihomo TUN 送到代理出口；本机 LAN 地址变化时要同步更新该值。
 - nginx 只把 Pet Watch 已知路由转入隧道，对未知扫描路径直接返回 404；页面与 API 设置每 IP 请求速率和并发限制，超额返回 429。带版本号的静态资源和事件图片不参与这两个计数，避免首屏并发加载被误伤；实时流仍使用 120 秒读取超时。
 - 观看流畅度取决于家庭宽带上行带宽，不适合长期多路高清同时观看。
@@ -65,6 +65,7 @@
 ## 排查
 
 - 本机隧道：`systemctl --user status frpc`，日志 `~/.config/frp/frpc.log`
+- 云端 `127.0.0.1:8080/healthz` 超时、但本机同接口正常时，优先检查 frps 日志里的 `failed to send message to work connection`、`connection timed out/reset by peer`；当前正常状态下 frpc 到 frps 只保留一条已建立连接。
 - 脚本视角：`./scripts/start-frp.sh --status`
 - 服务器：`ssh` 上 kzeng 后 `systemctl status frps`、`nginx -t`、`tail /var/log/frps.log`
 - DNS：`dig +short hamster.mitoto.cn` 应返回 `47.97.193.62`

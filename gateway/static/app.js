@@ -5,6 +5,10 @@ let watching = false, resumeWhenVisible = false, streamStarted = 0;
 let previousSequence = -1, stalledPolls = 0, photoUrl = null, toastTimer;
 let effectiveResolution = "";
 let flashOn = false, flashChanging = false;
+const frameTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+});
 
 $("today").textContent = new Intl.DateTimeFormat("zh-CN", {month: "long", day: "numeric", weekday: "short"}).format(new Date());
 document.querySelectorAll("time.local-time").forEach((node) => {
@@ -48,6 +52,26 @@ function overlay(title, text) {
   $("placeholder").hidden = false;
 }
 
+function formatFrameTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  const parts = Object.fromEntries(frameTimeFormatter.formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
+function updateFrameTimestamp(data, live) {
+  const node = $("frameTimestamp");
+  const value = formatFrameTime(data.captured_at);
+  if (!value || !watching) {
+    node.hidden = true;
+    return;
+  }
+  const stale = !live || data.frame_age_s === null || data.frame_age_s > 2.5;
+  node.textContent = `${stale ? "最后画面" : "实时"}  ${value}`;
+  node.classList.toggle("stale", stale);
+  node.hidden = false;
+}
+
 function connectStream() {
   if (!watching) return;
   streamStarted = Date.now();
@@ -71,6 +95,7 @@ function stop() {
   $("toggle").textContent = "开始观看";
   $("state").textContent = "已暂停";
   $("statusDot").className = "dot";
+  $("frameTimestamp").hidden = true;
   overlay("画面已暂停", "点击开始观看，重新连接家里的小伙伴。");
 }
 
@@ -126,6 +151,7 @@ async function poll() {
     if (data.sequence === previousSequence) stalledPolls++; else stalledPolls = 0;
     previousSequence = data.sequence;
     const live = data.state === "live";
+    updateFrameTimestamp(data, live);
     $("state").textContent = live ? "画面更新中" : data.state === "offline" ? "连接中断" : "正在连接";
     $("statusDot").className = `dot ${live ? "live" : data.state === "offline" ? "offline" : ""}`;
     if (live) {

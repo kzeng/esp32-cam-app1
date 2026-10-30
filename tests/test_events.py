@@ -3,10 +3,22 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 from events import EventStore
 
 
-JPEG = b"\xff\xd8test-image\xff\xd9"
+def make_jpeg(value=80):
+    image = np.full((240, 320, 3), value, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", image)
+    if not ok:
+        raise RuntimeError("test JPEG encoding failed")
+    return encoded.tobytes()
+
+
+JPEG = make_jpeg()
+PEAK_JPEG = make_jpeg(140)
 
 
 class EventStoreTests(unittest.TestCase):
@@ -20,7 +32,7 @@ class EventStoreTests(unittest.TestCase):
     def test_motion_event_lifecycle(self):
         started = datetime.now(timezone.utc) - timedelta(seconds=4)
         event_id = self.store.begin_motion(started, JPEG, JPEG, 0.12)
-        self.store.update_peak(event_id, JPEG + b"peak", 0.25)
+        self.store.update_peak(event_id, PEAK_JPEG, 0.25)
         self.store.finish_motion(event_id, datetime.now(timezone.utc))
 
         events = self.store.list_events()
@@ -29,7 +41,9 @@ class EventStoreTests(unittest.TestCase):
         self.assertGreaterEqual(events[0]["duration_s"], 3.9)
         self.assertAlmostEqual(events[0]["peak_score"], 0.25)
         for role in ("pre", "trigger", "peak"):
-            self.assertTrue(self.store.image_path(event_id, role).is_file())
+            path = self.store.image_path(event_id, role)
+            self.assertTrue(path.is_file())
+            self.assertIsNotNone(cv2.imread(str(path)))
 
         self.assertTrue(self.store.mark_viewed(event_id))
         self.assertEqual(self.store.list_events(unseen=True), [])

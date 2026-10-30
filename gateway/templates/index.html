@@ -5,6 +5,7 @@
   <meta name="theme-color" content="#edf3f8"><meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{{ camera_name }} · 小窝看护</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='frame-timestamp.css') }}">
   <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
 <body>
@@ -27,6 +28,7 @@
         <div class="viewport" id="viewport">
           <img id="stream" alt="家中宠物摄像头实时画面" hidden>
           <div class="placeholder" id="placeholder"><img class="home-symbol" src="{{ url_for('static', filename='hamster.svg') }}" alt=""><h2 id="placeholderTitle">小窝就在这里</h2><p id="placeholderText">点击下方按钮，看看它在做什么。</p></div>
+          <time class="frame-timestamp" id="frameTimestamp" aria-hidden="true" hidden></time>
           <button class="expand" id="fullscreen" type="button" aria-label="全屏查看">⛶</button>
         </div>
         <div class="controls">

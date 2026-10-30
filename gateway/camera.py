@@ -1,6 +1,7 @@
 """One capture loop shared by viewers and the background motion detector."""
 import threading
 import time
+from datetime import datetime, timezone
 
 import requests
 
@@ -25,6 +26,7 @@ class Camera:
         self.frame = None
         self.sequence = 0
         self.updated = None
+        self.captured_at = None
         self.last_error = None
         self.resolution = None  # Unknown until explicitly applied.
         self.worker = None
@@ -104,6 +106,7 @@ class Camera:
                             self.frame = bytes(data)
                             self.sequence += 1
                             self.updated = time.monotonic()
+                            self.captured_at = datetime.now(timezone.utc)
                             self.last_error = None
                             self.condition.notify_all()
                 except (requests.RequestException, CameraError) as error:
@@ -122,8 +125,9 @@ class Camera:
         with self.condition:
             while True:
                 if (self.frame and self.sequence > after and self.updated is not None
+                        and self.captured_at is not None
                         and time.monotonic() - self.updated <= self.FRESH_SECONDS):
-                    return self.sequence, self.frame
+                    return self.sequence, self.frame, self.captured_at
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise CameraError(self.last_error or "尚未收到画面，请检查摄像头。")
@@ -134,7 +138,8 @@ class Camera:
         try:
             with self.condition:
                 after = self.sequence  # Require a newly received image.
-            return self.next_frame(after)[1]
+            _, jpeg, captured_at = self.next_frame(after)
+            return jpeg, captured_at
         finally:
             self.unsubscribe()
 
@@ -186,6 +191,8 @@ class Camera:
                           "live" if age is not None and age <= self.FRESH_SECONDS else
                           "offline" if self.last_error else "connecting"),
                 "frame_age_s": round(age, 1) if age is not None else None,
+                "captured_at": (self.captured_at.isoformat(timespec="milliseconds")
+                                if self.captured_at is not None else None),
                 "sequence": self.sequence,
                 "viewers": self.viewers,
                 "monitoring": self.monitor_fps > 0,

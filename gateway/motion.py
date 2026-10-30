@@ -126,10 +126,12 @@ class MotionService:
             self.store.record_state("camera_offline")
             self.offline_recorded = True
 
-    def _begin_event(self, jpeg, score):
-        now = datetime.now(timezone.utc)
-        pre = self.history[0] if self.history else jpeg
-        self.event_id = self.store.begin_motion(now, pre, jpeg, score)
+    def _begin_event(self, jpeg, captured_at, score):
+        pre_jpeg, pre_captured_at = self.history[0] if self.history else (jpeg, captured_at)
+        self.event_id = self.store.begin_motion(
+            captured_at, pre_jpeg, jpeg, score,
+            pre_captured_at=pre_captured_at, trigger_captured_at=captured_at,
+        )
         self.event_peak = score
         self.last_motion_monotonic = time.monotonic()
 
@@ -145,7 +147,7 @@ class MotionService:
         sequence = -1
         while not self.stop_event.is_set():
             try:
-                sequence, jpeg = self.camera.next_frame(sequence, timeout=10)
+                sequence, jpeg, captured_at = self.camera.next_frame(sequence, timeout=10)
                 self._record_camera_ok()
                 settings = self.store.settings()
                 score, moving = self.analyzer.analyze(jpeg, settings)
@@ -156,16 +158,16 @@ class MotionService:
                     self.last_error = None
                 if confirmed:
                     if self.event_id is None:
-                        self._begin_event(jpeg, score)
+                        self._begin_event(jpeg, captured_at, score)
                     else:
                         self.last_motion_monotonic = time.monotonic()
                         if score > self.event_peak:
                             self.event_peak = score
-                            self.store.update_peak(self.event_id, jpeg, score)
+                            self.store.update_peak(self.event_id, jpeg, score, captured_at)
                 if (self.event_id is not None and self.last_motion_monotonic is not None and
                         time.monotonic() - self.last_motion_monotonic >= self.quiet_seconds):
                     self._finish_event()
-                self.history.append(jpeg)
+                self.history.append((jpeg, captured_at))
             except CameraError as error:
                 self._record_camera_failure()
                 if (self.event_id is not None and self.last_motion_monotonic is not None and

@@ -1,0 +1,28 @@
+.frame-timestamp {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  right: 14px;
+  padding: 5px 9px;
+  border: 1px solid #ffffff30;
+  border-radius: 7px;
+  background: #07131dcc;
+  color: #fff;
+  font: 600 12px/1.4 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  letter-spacing: .2px;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+
+.frame-timestamp.stale {
+  background: #70451be6;
+  color: #fff2d8;
+}
+
+@media (max-width: 620px) {
+  .frame-timestamp {
+    top: 10px;
+    right: 10px;
+    font-size: 11px;
+  }
+}

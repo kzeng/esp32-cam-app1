@@ -2,7 +2,10 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
+import cv2
+import numpy as np
 
 TEST_DATA = tempfile.TemporaryDirectory()
 os.environ.update({
@@ -17,7 +20,15 @@ os.environ.update({
 import app as application  # noqa: E402
 
 
-JPEG = b"\xff\xd8route-test\xff\xd9"
+def make_jpeg(value=90):
+    image = np.full((240, 320, 3), value, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", image)
+    if not ok:
+        raise RuntimeError("test JPEG encoding failed")
+    return encoded.tobytes()
+
+
+JPEG = make_jpeg()
 
 
 class AppRouteTests(unittest.TestCase):
@@ -66,6 +77,17 @@ class AppRouteTests(unittest.TestCase):
 
         anonymous = application.app.test_client()
         self.assertEqual(anonymous.get("/api/motion-settings").status_code, 401)
+
+    def test_snapshot_download_has_timestamp_watermark(self):
+        captured_at = datetime(2026, 10, 30, 5, 2, 31, tzinfo=timezone.utc)
+        with patch.object(application.camera, "snapshot", return_value=(JPEG, captured_at)):
+            response = self.client.get("/api/snapshot")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "image/jpeg")
+        self.assertIn("pet-20261030-050231.jpg", response.headers["Content-Disposition"])
+        decoded = cv2.imdecode(np.frombuffer(response.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded.shape[:2], (240, 320))
 
     def test_cache_policy_and_versioned_static_assets(self):
         page = self.client.get("/events")
