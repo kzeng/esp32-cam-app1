@@ -15,6 +15,7 @@ ESP32-CAM 独立供电，通过家中 Wi-Fi 把宠物画面传给 Ubuntu 22.04 �
 | [frp 手机外网查看](docs/FRP.md) | 本机一键启动、手机地址、限制与安全说明 |
 | [开发说明与记录](docs/DEVELOPMENT.md) | 需求决定、文件说明、实施步骤与交付边界 |
 | [待执行验收清单](docs/ACCEPTANCE.md) | 在 Ubuntu 和真实硬件上逐项确认 |
+| [六格功能漫画](docs/comic.html) | 独立静态 HTML，可直接在浏览器中打开，不依赖 Flask |
 
 ## 已实现内容
 
