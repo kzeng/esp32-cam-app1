@@ -66,9 +66,9 @@
 
 | 配置 | ESP32-CAM | Ubuntu / 云服务器 | 手机 |
 | --- | --- | --- | --- |
-| 家庭 Wi-Fi 名称／密码 | `secrets.h` | 操作系统网络配置 | 在外不需要 |
+| 家庭 Wi-Fi 名称／密码 | 热点网页输入，保存在设备 NVS | 操作系统网络配置，不读取设备 Wi-Fi 密码 | 在外不需要 |
 | `CAMERA_KEY` | `secrets.h` | `.env`，同一值 | 不提供给网页 |
-| 摄像头 IP | 自动获取并打印 | `CAMERA_URL` | 不需要知道 |
+| 摄像头地址 | DHCP 自动获取 IP；发布 `CAMERA_HOSTNAME.local`，默认 `pet-camera.local` | `CAMERA_URL=http://pet-camera.local`，系统 mDNS 解析 | 不需要知道 |
 | 网页访问密码 | 不需要 | `APP_PASSWORD` | 登录页面输入 |
 | 会话签名密钥 | 不需要 | `SECRET_KEY` | 不手动配置 |
 | frp 客户端配置／token | **不需要** | `~/.config/frp/frpc.toml` | 不需要 |

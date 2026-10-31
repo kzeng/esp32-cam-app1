@@ -72,7 +72,7 @@ class Camera:
                 return "摄像头密钥不匹配，请检查电脑与固件配置。"
             return f"摄像头返回错误（{code}）。"
         if isinstance(error, requests.RequestException):
-            return "无法连接摄像头，请检查地址、供电和 Wi-Fi。"
+            return "无法连接摄像头，请检查地址、供电、Wi-Fi 和 .local 名称解析。"
         return str(error)
 
     def _run(self):
@@ -111,6 +111,9 @@ class Camera:
                             self.condition.notify_all()
                 except (requests.RequestException, CameraError) as error:
                     failed = True
+                    # Drop keep-alive sockets to the old IP. The next connection
+                    # resolves the hostname through the OS again (including mDNS).
+                    client.close()
                     with self.condition:
                         self.last_error = self._message(error)
                         # Never keep presenting a pre-disconnection frame as live.

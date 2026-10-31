@@ -47,7 +47,7 @@ ESP32-CAM 日常运行无需 USB 连接电脑；烧录和串口调试才需要�
 ## 从哪里开始
 
 1. 在 Ubuntu 克隆本仓库，阅读 [固件步骤](docs/FIRMWARE.md)，确认板型并配置本地 `firmware/include/secrets.h`。
-2. 在 Ubuntu 的 PlatformIO 环境构建、烧录，记录串口打印的摄像头 IP，在路由器中为它保留地址。
+2. 在 Ubuntu 的 PlatformIO 环境构建、烧录，通过设备热点网页配置 Wi-Fi（串口 `wifi-info` 获取热点密码），确认 `mDNS ready: http://pet-camera.local`；Ubuntu 配置并验证 `.local` 解析，无需依赖固定 IP。
 3. 按 [Ubuntu 部署步骤](docs/UBUNTU.md) 配置 `gateway/.env`，先在笔记本本机验证。
 4. 按 [frp 指南](docs/FRP.md) 确保网关与隧道在线，再通过固定 HTTPS 地址远程连接。
 5. 执行 [验收清单](docs/ACCEPTANCE.md)。性能数值以真实供电、照明和外网测试为准。
