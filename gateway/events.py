@@ -322,6 +322,41 @@ class EventStore:
         return {"deleted": [event_id for event_id in ids if event_id in existing],
                 "missing": [event_id for event_id in ids if event_id not in existing]}
 
+    def clear_events(self):
+        """Atomically detach all event images and remove every event record.
+
+        Settings remain intact. Moving the image tree to private trash first
+        makes the user-visible deletion immediate while allowing the database
+        transaction to roll the filesystem back if it fails.
+        """
+        moved = None
+        with self.lock:
+            try:
+                with self._connect() as db:
+                    count = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                    image_bytes = db.execute(
+                        "SELECT COALESCE(SUM(bytes),0) FROM images"
+                    ).fetchone()[0]
+                    if self.image_root.is_dir() and any(self.image_root.iterdir()):
+                        destination = self.trash_root / f"all-events-{uuid.uuid4().hex}"
+                        os.replace(self.image_root, destination)
+                        self.image_root.mkdir(parents=True, exist_ok=True)
+                        moved = destination
+                    db.execute("DELETE FROM events")
+            except Exception:
+                if moved and moved.exists():
+                    shutil.rmtree(self.image_root, ignore_errors=True)
+                    os.replace(moved, self.image_root)
+                raise
+        if moved:
+            threading.Thread(
+                target=self._remove_trash,
+                args=([moved],),
+                name="event-trash-clear-all",
+                daemon=True,
+            ).start()
+        return {"deleted_count": count, "deleted_bytes": image_bytes}
+
     def cleanup(self, now=None):
         now = now or utc_now()
         cutoff = iso(now - timedelta(days=self.retention_days))

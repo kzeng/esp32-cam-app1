@@ -102,3 +102,32 @@ document.getElementById("batchDelete")?.addEventListener("click", (event) => {
   if (!ids.length || !window.confirm(`删除所选 ${ids.length} 个事件及其全部照片？此操作不能撤销。`)) return;
   batch("delete", ids, [event.currentTarget, document.getElementById("batchViewed")]);
 });
+
+document.getElementById("clearAllEvents")?.addEventListener("click", async (event) => {
+  if (!window.confirm("确定清空所有活动事件吗？这会永久删除全部事件记录及图片，无法撤销。")) return;
+  const button = event.currentTarget;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在清空…";
+  try {
+    const response = await fetch("/api/events/clear", {
+      method: "POST",
+      cache: "no-store",
+      headers: {"Content-Type": "application/json", "Accept": "application/json", "X-CSRF-Token": csrf},
+      body: JSON.stringify({confirm: true}),
+    });
+    if (response.status === 401) {
+      location.assign("/login");
+      return;
+    }
+    let payload = {};
+    try { payload = await response.json(); } catch (_) { /* nginx error page */ }
+    if (!response.ok) throw new Error(payload.error || "清空失败，请稍后重试。");
+    toast(`已清空 ${payload.deleted_count || 0} 个事件及其图片。`);
+    setTimeout(() => location.assign("/events"), 650);
+  } catch (error) {
+    toast(error.message || "连接暂时不可用，请稍后重试。");
+    button.disabled = false;
+    button.textContent = original;
+  }
+});

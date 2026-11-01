@@ -327,6 +327,16 @@ def event_batch():
     return jsonify(ok=True, action=payload["action"], **result)
 
 
+@app.post("/api/events/clear")
+@login_required
+def event_clear():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or type(payload.get("confirm")) is not bool or not payload["confirm"]:
+        return jsonify(error="请确认后再清空全部事件。"), 400
+    result = event_store.clear_events()
+    return jsonify(ok=True, action="clear", **result)
+
+
 @app.get("/motion")
 @login_required
 def motion_page():

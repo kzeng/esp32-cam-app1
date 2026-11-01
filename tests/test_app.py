@@ -126,6 +126,20 @@ class AppRouteTests(unittest.TestCase):
                                    headers=headers)
         self.assertEqual(invalid.status_code, 400)
 
+    def test_clear_events_requires_explicit_confirmation(self):
+        first = application.event_store.begin_motion(datetime.now(timezone.utc), JPEG, JPEG, 0.2)
+        application.event_store.record_state("camera_offline")
+        headers = {"X-CSRF-Token": "test-csrf"}
+
+        refused = self.client.post("/api/events/clear", json={"confirm": False}, headers=headers)
+        self.assertEqual(refused.status_code, 400)
+        self.assertIsNotNone(application.event_store.image_path(first, "peak"))
+
+        cleared = self.client.post("/api/events/clear", json={"confirm": True}, headers=headers)
+        self.assertEqual(cleared.status_code, 200)
+        self.assertGreaterEqual(cleared.get_json()["deleted_count"], 2)
+        self.assertEqual(application.event_store.list_events(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

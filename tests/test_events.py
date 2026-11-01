@@ -93,6 +93,24 @@ class EventStoreTests(unittest.TestCase):
         self.store.delete_events([event_id])
         self.assertFalse(event_directory.exists())
 
+    def test_clear_events_removes_records_and_images_but_keeps_settings(self):
+        first = self.store.begin_motion(datetime.now(timezone.utc), JPEG, JPEG, 0.2)
+        self.store.record_state("camera_offline")
+        image_path = self.store.image_path(first, "peak")
+        expected_bytes = sum(path.stat().st_size for path in image_path.parent.glob("*.jpg")
+                             if path.name != "thumb.jpg")
+
+        result = self.store.clear_events()
+
+        self.assertEqual(result["deleted_count"], 2)
+        self.assertEqual(result["deleted_bytes"], expected_bytes)
+        self.assertEqual(self.store.list_events(), [])
+        self.assertFalse(image_path.exists())
+        self.assertTrue(self.store.image_root.is_dir())
+        self.assertEqual(self.store.settings()["roi_w"], 1.0)
+
+        self.assertEqual(self.store.clear_events()["deleted_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

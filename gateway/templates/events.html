@@ -14,7 +14,7 @@
     <form class="logout" action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="text-button" type="submit">退出</button></form>
   </header>
   <main>
-    <div class="page-heading"><div><p class="eyebrow">ACTIVITY</p><h1>活动事件</h1></div><p>移动事件保留触发前、首次触发和变化峰值三张照片。</p></div>
+    <div class="page-heading"><div><p class="eyebrow">ACTIVITY</p><h1>活动事件</h1></div><div class="page-heading-actions"><p>移动事件保留触发前、首次触发和变化峰值三张照片。</p><button id="clearAllEvents" class="danger-link" type="button">清空全部事件</button></div></div>
     <nav class="filters" aria-label="事件筛选">
       {% for value,label in [('all','全部'),('today','今天'),('week','最近 7 天'),('unseen','未查看')] %}<a class="{% if current_filter == value %}active{% endif %}" href="{{ url_for('events_page', filter=value) }}">{{ label }}</a>{% endfor %}
     </nav>
