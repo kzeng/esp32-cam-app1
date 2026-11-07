@@ -21,6 +21,7 @@
 - [ ] 成功烧录，移除 IO0–GND 下载连接后正常启动。
 - [ ] 摄像头初始化成功、PSRAM 可用，串口打印实际 IP。
 - [ ] 固件打印 mDNS 就绪，Ubuntu 的 `getent ahostsv4 pet-camera.local` 返回正确 IP；不设置公网摄像头端口映射。
+- [ ] 当前 CH340 底座供电部署：拔出 USB 至设备离线，再插回同一物理端口；无需人工打开串口或按复位键，`pet-camera-usb-watch.service` 只记录一次释放，随后启动日志、mDNS、Gateway 新帧和公网画面自动恢复。
 - [ ] 移除串口连接，只使用独立电源，摄像头仍能工作。
 
 ## Wi-Fi 配网与恢复（新固件实机待验收）

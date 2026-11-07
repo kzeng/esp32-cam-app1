@@ -5,12 +5,14 @@
 第一版针对常见 **AI Thinker ESP32-CAM + OV2640 + PSRAM**。用户已说明是 ESP32-CAM，但尚未确认厂商、芯片丝印和摄像头型号；烧录前必须对照板型。其他 ESP32 摄像头板不能直接套用这组引脚。
 
 ```text
-5V 稳定电源 ── ESP32-CAM
+5V 稳定电源／CH340 USB ── ESP32-CAM
+                    │ EN / GPIO0（仅 CH340 底座部署）
+              Ubuntu USB 监视服务
                     │ 2.4 GHz Wi-Fi / 家庭局域网 HTTP
                家中路由器
                     │ Wi-Fi 或有线
               Ubuntu 22.04 笔记本
-                    ├─ Python 网关 0.0.0.0:8080
+                    ├─ Python 网关 127.0.0.1:8080
                     │    ├─ 唯一 JPEG 采集线程
                     │    ├─ 移动检测与事件合并
                     │    └─ SQLite + 私有 JPEG 目录
@@ -23,7 +25,9 @@
                          手机浏览器
 ```
 
-摄像头无需 USB 连到 Ubuntu。USB 转串口只用于烧录／日志；独立运行保留电源、摄像头和 Wi-Fi 即可。Ubuntu 仍需常开，因为第一版由它承接外网查看。独立光源由用户已有设备提供；可在网页手动控制板载 GPIO4 补灯，开机默认关闭，连续点亮最多 1 分钟后自动关闭。不使用 SD 卡（GPIO4 与其引脚复用），补灯状态对所有观看者共用。
+摄像头可用独立 5V 电源运行。当前实机使用 CH340 下载底座连接 Ubuntu 并供电；该底座在 USB 重新枚举后可能让 RTS/EN 保持复位电平，使 ESP32 固件根本没有运行。用户级 `pet-camera-usb-watch.service` 监视 `/dev/ttyUSB0` 的消失与重现，严格核对 CH340 `1a86:7523` 和物理端口 `1-2.4`，然后释放 DTR/GPIO0、脉冲 RTS/EN，让板子进入正常应用而不是下载模式。它不刷写 Flash、不修改 NVS，也不替代 mDNS；mDNS 只负责已经启动并联网后的地址发现。
+
+Ubuntu 仍需常开，因为第一版由它承接 USB 恢复、移动检测和外网查看。独立光源由用户已有设备提供；可在网页手动控制板载 GPIO4 补灯，开机默认关闭，连续点亮最多 1 分钟后自动关闭。不使用 SD 卡（GPIO4 与其引脚复用），补灯状态对所有观看者共用。
 
 ## 视频链路
 
@@ -53,7 +57,7 @@
 ## 网络与隐私
 
 - 手机通过固定地址 `https://hamster.mitoto.cn` 访问；公网 HTTPS 在 kzeng 云服务器的 nginx 终止，再转发到 frps 映射端口。
-- Ubuntu 网关由启动脚本监听 `0.0.0.0:8080`，frpc 将本机 `127.0.0.1:8080` 映射到云服务器。frp 使用 token 验证客户端，具体传输保护取决于 frp 配置。
+- 当前 Ubuntu 网关由 systemd 用户服务监听 `127.0.0.1:8080`，frpc 将该本机端口映射到云服务器。交互式 `start-frp.sh` 仅在没有现成网关时使用 `0.0.0.0:8080` 启动临时进程。frp 使用 token 验证客户端，具体传输保护取决于 frp 配置。
 - ESP32 到 Ubuntu 使用家庭局域网 HTTP，依赖家庭 Wi-Fi 安全；它不属于公网 HTTPS 的加密范围。
 - 家庭路由器不需要端口转发，手机也不需要安装专用客户端；公网入口由云服务器、域名和证书共同提供。
 - frps 的 `proxyBindAddr` 固定为 `127.0.0.1`，映射端口 `8080` 只供云服务器本机 nginx 使用；公网仅暴露 HTTPS 入口。
@@ -70,6 +74,7 @@
 | 家庭 Wi-Fi 名称／密码 | 热点网页输入，保存在设备 NVS | 操作系统网络配置，不读取设备 Wi-Fi 密码 | 在外不需要 |
 | `CAMERA_KEY` | `secrets.h` | `.env`，同一值 | 不提供给网页 |
 | 摄像头地址 | DHCP 自动获取 IP；发布 `CAMERA_HOSTNAME.local`，默认 `pet-camera.local` | `CAMERA_URL=http://pet-camera.local`，系统 mDNS 解析 | 不需要知道 |
+| CH340 自动复位 | DTR→GPIO0、RTS→EN；正常启动时两者释放 | 用户服务匹配 `/dev/ttyUSB0`、`1a86:7523`、USB 端口 `1-2.4` | 不需要知道 |
 | 网页访问密码 | 不需要 | `APP_PASSWORD` | 登录页面输入 |
 | 会话签名密钥 | 不需要 | `SECRET_KEY` | 不手动配置 |
 | frp 客户端配置／token | **不需要** | `~/.config/frp/frpc.toml` | 不需要 |

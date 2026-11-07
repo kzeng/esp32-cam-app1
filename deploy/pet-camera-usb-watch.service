@@ -1,0 +1,15 @@
+[Unit]
+Description=Release ESP32-CAM reset lines after CH340 reconnect
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -B %h/Codes/esp32-cam-app1/scripts/camera_usb_reset.py --watch --device /dev/ttyUSB0 --vendor 1a86 --product 7523 --usb-port 1-2.4
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

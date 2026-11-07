@@ -106,6 +106,8 @@ pio run
 
 5. 首次启动先按下一节配网；成功后确认日志出现 `Camera ready: http://192.168.x.x` 和 `mDNS ready: http://pet-camera.local`。按 [Ubuntu 部署说明](UBUNTU.md) 验证名称解析，将网关配置为 `CAMERA_URL=http://pet-camera.local`。IP 用于诊断，无需在固件中硬编码，也不再要求路由器做 DHCP 地址保留；地址保留仍可作为可选措施。
 
+当前实机使用的 CH340 下载底座在 USB 拔出重插后可能把 RTS/EN 留在复位状态。此时 CPU 没有运行，串口日志、Wi-Fi 和 mDNS 都不会出现；这不是 mDNS 地址缓存问题。长期连接该底座运行时，按 [Ubuntu 部署说明](UBUNTU.md#ch340-下载底座拔插自动恢复当前实机) 安装受设备身份和物理端口约束的自动复位监视服务。独立 5V 供电、不连接 CH340 的部署不需要该服务。
+
 串口权限不足时：
 
 ```bash

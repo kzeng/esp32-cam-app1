@@ -115,6 +115,36 @@ sudo journalctl -u pet-watch -n 80 --no-pager
 
 `{"ok":true}` 不代表摄像头在线，还需登录并查看真实画面。`COOKIE_SECURE=1` 时，本机 HTTP 不能保持登录；使用下一节的 HTTPS 地址完成登录验证。
 
+### CH340 下载底座拔插自动恢复（当前实机）
+
+如果 ESP32-CAM 由 CH340 下载底座连接本机并供电，Linux 重新枚举串口后，底座可能让 RTS/EN 保持复位电平。此时板端固件没有运行，因而不会连接 Wi-Fi 或发布 mDNS；`pet-camera.local` 无法解决这个上电问题。
+
+先确认设备身份和固定物理端口。当前实机为 `1a86:7523`、USB 端口 `1-2.4`：
+
+```bash
+udevadm info -q property -n /dev/ttyUSB0 | grep -E 'ID_VENDOR=|ID_MODEL=|ID_USB_DRIVER='
+readlink -f /sys/class/tty/ttyUSB0/device
+```
+
+服务模板中的 `--device`、`--vendor`、`--product` 和 `--usb-port` 必须与实机一致；不一致时脚本拒绝操作，避免复位其他串口设备。仓库位于 `~/Codes/esp32-cam-app1` 时安装：
+
+```bash
+install -m 644 deploy/pet-camera-usb-watch.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now pet-camera-usb-watch.service
+systemctl --user status pet-camera-usb-watch.service --no-pager
+loginctl show-user "$USER" -p Linger
+```
+
+服务以 0.5 秒间隔监视设备节点，只在“缺失→出现”时操作一次：先释放 DTR/GPIO0，再短暂拉低 RTS/EN 并释放，确保进入正常固件。脚本只使用 Python 标准库，不读取摄像头密钥、不刷写固件或 NVS。用户 linger 应为 `yes`，否则尚未登录桌面时用户服务不会启动；需要时由管理员执行 `sudo loginctl enable-linger "$USER"`。
+
+验证实际拔插后无需打开串口监视器或人工复位，日志应出现一次“已释放”，随后 mDNS 和抓帧自动恢复：
+
+```bash
+journalctl --user -u pet-camera-usb-watch.service -n 20 --no-pager
+getent ahostsv4 pet-camera.local
+```
+
 ## 4. 配置远程查看
 
 按 [frp 指南](FRP.md) 确认本机 `frpc`、kzeng 上的 `frps` 和 nginx HTTPS 在线：
@@ -176,7 +206,8 @@ sudo systemctl disable --now pet-watch
 | --- | --- |
 | 服务启动失败 | 查看 journal，检查 `.env` 占位符、字段长度、路径、文件读取权限 |
 | 地址已占用 | 确认开发服务器是否仍在 8080 运行 |
-| 摄像头超时 | `getent ahostsv4 pet-camera.local`、独立电源、Wi-Fi、访客隔离；确认 Ubuntu 可以直接连接摄像头 |
+| CH340 拔插后摄像头离线 | 查看 `pet-camera-usb-watch.service`；确认 `/dev/ttyUSB0`、`1a86:7523` 和 USB 端口与服务参数一致。mDNS 只能发现已启动的板子 |
+| 摄像头超时 | 先确认 USB 自动复位日志，再查 `getent ahostsv4 pet-camera.local`、供电、Wi-Fi、访客隔离；确认 Ubuntu 可以直接连接摄像头 |
 | 401 摄像头错误 | `CAMERA_KEY` 与板端是否一致 |
 | 登录反复回到登录页 | `COOKIE_SECURE=1` 必须用 HTTPS；检查地址和浏览器 cookie |
 | 手机无法访问，但 Ubuntu 本机正常 | `start-frp.sh --status`、frpc 日志、kzeng 上 frps/nginx、电脑是否睡眠 |
